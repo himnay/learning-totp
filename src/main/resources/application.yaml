@@ -1,6 +1,14 @@
 spring:
   application:
     name: learning-totp
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5433}/${POSTGRES_DB:totp}
+    username: ${POSTGRES_USER:totp}
+    password: ${POSTGRES_PASSWORD:totp}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
 
 server:
   port: 8096

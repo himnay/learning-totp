@@ -9,7 +9,7 @@
       "_type": "workspace",
       "parentId": null,
       "name": "learning-totp",
-      "description": "generate/validate TOTP demo APIs built on totp-spring-boot-starter"
+      "description": "generate/validate TOTP + recovery code demo APIs built on totp-spring-boot-starter"
     },
     {
       "_id": "env_base",
@@ -35,7 +35,7 @@
       "url": "{{ _.baseUrl }}/api/v1/totp/generate",
       "body": {
         "mimeType": "application/json",
-        "text": "{\n  \"accountName\": \"alice@example.com\",\n  \"issuer\": \"learning-totp\"\n}"
+        "text": "{\n  \"deviceId\": \"alice-iphone-15\",\n  \"issuer\": \"learning-totp\"\n}"
       },
       "headers": [
         { "name": "Content-Type", "value": "application/json" }
@@ -50,7 +50,37 @@
       "url": "{{ _.baseUrl }}/api/v1/totp/validate",
       "body": {
         "mimeType": "application/json",
-        "text": "{\n  \"secret\": \"JBSWY3DPEHPK3PXP\",\n  \"code\": \"123456\"\n}"
+        "text": "{\n  \"deviceId\": \"alice-iphone-15\",\n  \"code\": \"123456\"\n}"
+      },
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" }
+      ]
+    },
+    {
+      "_id": "req_recovery_generate",
+      "_type": "request",
+      "parentId": "fld_totp",
+      "name": "Generate Recovery Codes",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/api/v1/totp/recovery-codes/generate",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"deviceId\": \"alice-iphone-15\",\n  \"count\": 10\n}"
+      },
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" }
+      ]
+    },
+    {
+      "_id": "req_recovery_validate",
+      "_type": "request",
+      "parentId": "fld_totp",
+      "name": "Validate (Redeem) Recovery Code",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/api/v1/totp/recovery-codes/validate",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"deviceId\": \"alice-iphone-15\",\n  \"code\": \"tf8i-exmo-3lcb-slkm\"\n}"
       },
       "headers": [
         { "name": "Content-Type", "value": "application/json" }

@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:19beta1  # -alpine variant of 19beta1 is broken (missing postgres user)
+    container_name: learning-totp-postgres
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: totp
+      POSTGRES_USER: totp
+      POSTGRES_PASSWORD: totp
+    volumes:
+      - postgres-data:/var/lib/postgresql   # PG18+: mount the parent dir (versioned subdir layout)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U totp -d totp"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  postgres-data:

@@ -1,4 +1,4 @@
-package com.org.learning.totp.web.dto;
+package com.org.learning.totp.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 

@@ -1,7 +1,8 @@
-package com.org.learning.totp.web;
+package com.org.learning.totp.controller;
 
+import com.org.learning.totp.dto.ApiError;
+import com.org.learning.totp.exception.DeviceNotFoundException;
 import com.org.learning.totp.exception.QrCodeRenderException;
-import com.org.learning.totp.web.dto.ApiError;
 import java.time.OffsetDateTime;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -23,6 +24,11 @@ public class GlobalExceptionHandler {
                         .map(f -> f.getField() + ": " + f.getDefaultMessage())
                         .orElse("Validation failed");
         return ResponseEntity.badRequest().body(error(HttpStatus.BAD_REQUEST, message));
+    }
+
+    @ExceptionHandler(DeviceNotFoundException.class)
+    public ResponseEntity<ApiError> handleDeviceNotFound(DeviceNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error(HttpStatus.NOT_FOUND, ex.getMessage()));
     }
 
     @ExceptionHandler(QrCodeRenderException.class)

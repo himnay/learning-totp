@@ -1,0 +1,23 @@
+spring:
+  application:
+    name: learning-totp
+
+server:
+  port: 8096
+
+# totp-spring-boot-starter (dev.samstevens.totp) configuration.
+# Every value below is the library's own default — shown explicitly so they're easy to find and
+# override. Changing any of these re-binds TotpProperties and reconfigures the auto-configured
+# SecretGenerator / QrDataFactory / CodeGenerator / CodeVerifier beans on next startup.
+totp:
+  secret:
+    length: 32      # characters in a newly generated secret
+  code:
+    length: 6       # digits in a generated/validated code
+  time:
+    period: 30      # seconds per time step
+    discrepancy: 1  # +/- time steps tolerated during validation
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html

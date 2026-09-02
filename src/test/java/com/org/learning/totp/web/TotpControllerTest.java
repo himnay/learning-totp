@@ -6,14 +6,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jayway.jsonpath.JsonPath;
 import dev.samstevens.totp.code.CodeGenerator;
 import dev.samstevens.totp.time.TimeProvider;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -27,9 +26,6 @@ class TotpControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
-
-    @Autowired
-    private ObjectMapper objectMapper;
 
     @Autowired
     private CodeGenerator codeGenerator;
@@ -65,8 +61,7 @@ class TotpControllerTest {
 
         mockMvc.perform(post("/api/v1/totp/validate")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(
-                                new com.org.learning.totp.web.dto.ValidateTotpRequest(secret, currentCode))))
+                        .content("{\"secret\":\"" + secret + "\",\"code\":\"" + currentCode + "\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.valid").value(true));
     }

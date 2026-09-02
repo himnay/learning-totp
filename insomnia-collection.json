@@ -1,0 +1,60 @@
+{
+  "_type": "export",
+  "__export_format": 4,
+  "__export_date": "2026-09-02T00:00:00.000Z",
+  "__export_source": "learning-totp.manual",
+  "resources": [
+    {
+      "_id": "wrk_learning_totp",
+      "_type": "workspace",
+      "parentId": null,
+      "name": "learning-totp",
+      "description": "generate/validate TOTP demo APIs built on totp-spring-boot-starter"
+    },
+    {
+      "_id": "env_base",
+      "_type": "environment",
+      "parentId": "wrk_learning_totp",
+      "name": "Base Environment",
+      "data": {
+        "baseUrl": "http://localhost:8096"
+      }
+    },
+    {
+      "_id": "fld_totp",
+      "_type": "request_group",
+      "parentId": "wrk_learning_totp",
+      "name": "TOTP (com.org.learning.totp)"
+    },
+    {
+      "_id": "req_totp_generate",
+      "_type": "request",
+      "parentId": "fld_totp",
+      "name": "Generate Secret + QR Code",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/api/v1/totp/generate",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"accountName\": \"alice@example.com\",\n  \"issuer\": \"learning-totp\"\n}"
+      },
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" }
+      ]
+    },
+    {
+      "_id": "req_totp_validate",
+      "_type": "request",
+      "parentId": "fld_totp",
+      "name": "Validate Code",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/api/v1/totp/validate",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"secret\": \"JBSWY3DPEHPK3PXP\",\n  \"code\": \"123456\"\n}"
+      },
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" }
+      ]
+    }
+  ]
+}

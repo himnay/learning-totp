@@ -23,7 +23,7 @@ totp:
   code:
     length: 6       # digits in a generated/validated code
   time:
-    period: 30      # seconds per time step
+    period: 60      # seconds per time step
     discrepancy: 1  # +/- time steps tolerated during validation
 
 springdoc:

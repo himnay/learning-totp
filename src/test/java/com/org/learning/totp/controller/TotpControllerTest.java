@@ -12,6 +12,7 @@ import dev.samstevens.totp.code.CodeGenerator;
 import dev.samstevens.totp.time.TimeProvider;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -44,82 +45,145 @@ class TotpControllerTest {
     @Autowired
     private TimeProvider timeProvider;
 
+    @Value("${totp.time.period}")
+    private int timePeriod;
+
     @Test
-    void generateReturnsASecretAndAScannableQrCode() throws Exception {
-        mockMvc.perform(post("/api/v1/totp/generate")
+    void registerReturnsASecretAndAnOtpAuthUri() throws Exception {
+        mockMvc.perform(post("/api/v1/totp/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"deviceId\":\"alice-iphone-15\"}"))
+                        .content("{\"appId\":\"alice-iphone-15-authenticator-v2\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.deviceId").value("alice-iphone-15"))
+                .andExpect(jsonPath("$.appId").value("alice-iphone-15-authenticator-v2"))
                 .andExpect(jsonPath("$.issuer").value("learning-totp"))
                 .andExpect(jsonPath("$.secret").value(matchesPattern("[A-Z2-7]{32}")))
+                .andExpect(jsonPath("$.otpAuthUri").value(startsWith("otpauth://totp/")));
+    }
+
+    @Test
+    void generateQrForARegisteredAppReturnsAScannableQrCode() throws Exception {
+        mockMvc.perform(post("/api/v1/totp/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"appId\":\"erin-macbook-authenticator\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/v1/totp/generate-qr")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"appId\":\"erin-macbook-authenticator\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.appId").value("erin-macbook-authenticator"))
                 .andExpect(jsonPath("$.otpAuthUri").value(startsWith("otpauth://totp/")))
                 .andExpect(jsonPath("$.qrCodeDataUri").value(startsWith("data:image/png;base64,")));
     }
 
     @Test
-    void generateThenValidateWithTheCurrentCodeSucceeds() throws Exception {
-        String generateResponse = mockMvc.perform(post("/api/v1/totp/generate")
+    void generateQrForAnUnregisteredAppReturns404() throws Exception {
+        mockMvc.perform(post("/api/v1/totp/generate-qr")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"deviceId\":\"bob-pixel-9\"}"))
+                        .content("{\"appId\":\"never-registered\"}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void generateReturnsTheCurrentNumericCodeAndItValidatesSuccessfully() throws Exception {
+        String registerResponse = mockMvc.perform(post("/api/v1/totp/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"appId\":\"bob-pixel-9-authenticator\"}"))
                 .andExpect(status().isOk())
                 .andReturn()
                 .getResponse()
                 .getContentAsString();
+        String secret = JsonPath.read(registerResponse, "$.secret");
 
-        String secret = JsonPath.read(generateResponse, "$.secret");
-        String currentCode = codeGenerator.generate(secret, timeProvider.getTime() / 30);
-
-        mockMvc.perform(post("/api/v1/totp/validate")
+        String generateResponse = mockMvc.perform(post("/api/v1/totp/generate-code")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"deviceId\":\"bob-pixel-9\",\"code\":\"" + currentCode + "\"}"))
+                        .content("{\"appId\":\"bob-pixel-9-authenticator\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.appId").value("bob-pixel-9-authenticator"))
+                .andExpect(jsonPath("$.code").value(matchesPattern("\\d{6}")))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        String expectedCode = codeGenerator.generate(secret, timeProvider.getTime() / timePeriod);
+        String returnedCode = JsonPath.read(generateResponse, "$.code");
+        org.assertj.core.api.Assertions.assertThat(returnedCode).isEqualTo(expectedCode);
+
+        mockMvc.perform(post("/api/v1/totp/validate-code")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"appId\":\"bob-pixel-9-authenticator\",\"code\":\"" + returnedCode + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.valid").value(true));
+    }
+
+    @Test
+    void validateQrAndValidateAgreeOnTheSameCode() throws Exception {
+        String registerResponse = mockMvc.perform(post("/api/v1/totp/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"appId\":\"frank-tablet-authenticator\"}"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String secret = JsonPath.read(registerResponse, "$.secret");
+        String currentCode = codeGenerator.generate(secret, timeProvider.getTime() / timePeriod);
+
+        mockMvc.perform(post("/api/v1/totp/validate-qr")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"appId\":\"frank-tablet-authenticator\",\"code\":\"" + currentCode + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.valid").value(true));
+
+        mockMvc.perform(post("/api/v1/totp/validate-code")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"appId\":\"frank-tablet-authenticator\",\"code\":\"" + currentCode + "\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.valid").value(true));
     }
 
     @Test
     void validateWithAWrongCodeReturnsFalseNotAnError() throws Exception {
-        mockMvc.perform(post("/api/v1/totp/generate")
+        mockMvc.perform(post("/api/v1/totp/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"deviceId\":\"carol-galaxy-s25\"}"))
+                        .content("{\"appId\":\"carol-galaxy-s25-authenticator\"}"))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(post("/api/v1/totp/validate")
+        mockMvc.perform(post("/api/v1/totp/validate-code")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"deviceId\":\"carol-galaxy-s25\",\"code\":\"000000\"}"))
+                        .content("{\"appId\":\"carol-galaxy-s25-authenticator\",\"code\":\"000000\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.valid").value(false));
     }
 
     @Test
-    void validateForAnUnknownDeviceReturns404() throws Exception {
-        mockMvc.perform(post("/api/v1/totp/validate")
+    void validateForAnUnregisteredAppReturns404() throws Exception {
+        mockMvc.perform(post("/api/v1/totp/validate-code")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"deviceId\":\"never-enrolled\",\"code\":\"123456\"}"))
+                        .content("{\"appId\":\"never-registered\",\"code\":\"123456\"}"))
                 .andExpect(status().isNotFound());
     }
 
     @Test
-    void generateWithABlankDeviceIdReturns400() throws Exception {
-        mockMvc.perform(post("/api/v1/totp/generate")
+    void registerWithABlankAppIdReturns400() throws Exception {
+        mockMvc.perform(post("/api/v1/totp/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"deviceId\":\"\"}"))
+                        .content("{\"appId\":\"\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400));
     }
 
     @Test
     void recoveryCodesCanBeGeneratedAndEachRedeemedExactlyOnce() throws Exception {
-        mockMvc.perform(post("/api/v1/totp/generate")
+        mockMvc.perform(post("/api/v1/totp/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"deviceId\":\"dave-ipad\"}"))
+                        .content("{\"appId\":\"dave-ipad-authenticator\"}"))
                 .andExpect(status().isOk());
 
         String generateResponse = mockMvc.perform(post("/api/v1/totp/recovery-codes/generate")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"deviceId\":\"dave-ipad\",\"count\":3}"))
+                        .content("{\"appId\":\"dave-ipad-authenticator\",\"count\":3}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.deviceId").value("dave-ipad"))
+                .andExpect(jsonPath("$.appId").value("dave-ipad-authenticator"))
                 .andExpect(jsonPath("$.codes", hasSize(3)))
                 .andReturn()
                 .getResponse()
@@ -129,23 +193,23 @@ class TotpControllerTest {
 
         mockMvc.perform(post("/api/v1/totp/recovery-codes/validate")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"deviceId\":\"dave-ipad\",\"code\":\"" + firstCode + "\"}"))
+                        .content("{\"appId\":\"dave-ipad-authenticator\",\"code\":\"" + firstCode + "\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.valid").value(true));
 
         // second attempt with the same code fails — one-time use
         mockMvc.perform(post("/api/v1/totp/recovery-codes/validate")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"deviceId\":\"dave-ipad\",\"code\":\"" + firstCode + "\"}"))
+                        .content("{\"appId\":\"dave-ipad-authenticator\",\"code\":\"" + firstCode + "\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.valid").value(false));
     }
 
     @Test
-    void generatingRecoveryCodesForAnUnenrolledDeviceReturns404() throws Exception {
+    void generatingRecoveryCodesForAnUnregisteredAppReturns404() throws Exception {
         mockMvc.perform(post("/api/v1/totp/recovery-codes/generate")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"deviceId\":\"never-enrolled\"}"))
+                        .content("{\"appId\":\"never-registered\"}"))
                 .andExpect(status().isNotFound());
     }
 }

@@ -1,7 +1,8 @@
 package com.org.learning.totp.controller;
 
 import com.org.learning.totp.dto.ApiError;
-import com.org.learning.totp.exception.DeviceNotFoundException;
+import com.org.learning.totp.exception.AppNotFoundException;
+import com.org.learning.totp.exception.OtpGenerationException;
 import com.org.learning.totp.exception.QrCodeRenderException;
 import java.time.OffsetDateTime;
 import lombok.extern.slf4j.Slf4j;
@@ -26,14 +27,21 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(error(HttpStatus.BAD_REQUEST, message));
     }
 
-    @ExceptionHandler(DeviceNotFoundException.class)
-    public ResponseEntity<ApiError> handleDeviceNotFound(DeviceNotFoundException ex) {
+    @ExceptionHandler(AppNotFoundException.class)
+    public ResponseEntity<ApiError> handleAppNotFound(AppNotFoundException ex) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error(HttpStatus.NOT_FOUND, ex.getMessage()));
     }
 
     @ExceptionHandler(QrCodeRenderException.class)
     public ResponseEntity<ApiError> handleQrCodeRender(QrCodeRenderException ex) {
         log.error("LEARNING_TOTP | QR generation failed | {}", ex.getMessage(), ex);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(error(HttpStatus.INTERNAL_SERVER_ERROR, ex.getMessage()));
+    }
+
+    @ExceptionHandler(OtpGenerationException.class)
+    public ResponseEntity<ApiError> handleOtpGeneration(OtpGenerationException ex) {
+        log.error("LEARNING_TOTP | OTP generation failed | {}", ex.getMessage(), ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(error(HttpStatus.INTERNAL_SERVER_ERROR, ex.getMessage()));
     }

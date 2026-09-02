@@ -9,7 +9,7 @@
       "_type": "workspace",
       "parentId": null,
       "name": "learning-totp",
-      "description": "generate/validate TOTP + recovery code demo APIs built on totp-spring-boot-starter"
+      "description": "register/generate/validate TOTP + recovery code demo APIs built on totp-spring-boot-starter"
     },
     {
       "_id": "env_base",
@@ -21,21 +21,60 @@
       }
     },
     {
-      "_id": "fld_totp",
-      "_type": "request_group",
+      "_id": "req_totp_register",
+      "_type": "request",
       "parentId": "wrk_learning_totp",
-      "name": "TOTP (com.org.learning.totp)"
+      "name": "Register App (generate/rotate secret)",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/api/v1/totp/register",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"appId\": \"alice-iphone-15-authenticator-v2\",\n  \"issuer\": \"learning-totp\"\n}"
+      },
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" }
+      ]
+    },
+    {
+      "_id": "req_totp_generate_qr",
+      "_type": "request",
+      "parentId": "wrk_learning_totp",
+      "name": "Generate QR Code",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/api/v1/totp/generate-qr",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"appId\": \"alice-iphone-15-authenticator-v2\"\n}"
+      },
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" }
+      ]
     },
     {
       "_id": "req_totp_generate",
       "_type": "request",
-      "parentId": "fld_totp",
-      "name": "Generate Secret + QR Code",
+      "parentId": "wrk_learning_totp",
+      "name": "Generate Current Code",
       "method": "POST",
-      "url": "{{ _.baseUrl }}/api/v1/totp/generate",
+      "url": "{{ _.baseUrl }}/api/v1/totp/generate-code",
       "body": {
         "mimeType": "application/json",
-        "text": "{\n  \"deviceId\": \"alice-iphone-15\",\n  \"issuer\": \"learning-totp\"\n}"
+        "text": "{\n  \"appId\": \"alice-iphone-15-authenticator-v2\"\n}"
+      },
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" }
+      ]
+    },
+    {
+      "_id": "req_totp_validate_qr",
+      "_type": "request",
+      "parentId": "wrk_learning_totp",
+      "name": "Validate Code (QR-enrolled)",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/api/v1/totp/validate-qr",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"appId\": \"alice-iphone-15-authenticator-v2\",\n  \"code\": \"123456\"\n}"
       },
       "headers": [
         { "name": "Content-Type", "value": "application/json" }
@@ -44,13 +83,13 @@
     {
       "_id": "req_totp_validate",
       "_type": "request",
-      "parentId": "fld_totp",
+      "parentId": "wrk_learning_totp",
       "name": "Validate Code",
       "method": "POST",
-      "url": "{{ _.baseUrl }}/api/v1/totp/validate",
+      "url": "{{ _.baseUrl }}/api/v1/totp/validate-code",
       "body": {
         "mimeType": "application/json",
-        "text": "{\n  \"deviceId\": \"alice-iphone-15\",\n  \"code\": \"123456\"\n}"
+        "text": "{\n  \"appId\": \"alice-iphone-15-authenticator-v2\",\n  \"code\": \"123456\"\n}"
       },
       "headers": [
         { "name": "Content-Type", "value": "application/json" }
@@ -59,13 +98,13 @@
     {
       "_id": "req_recovery_generate",
       "_type": "request",
-      "parentId": "fld_totp",
+      "parentId": "wrk_learning_totp",
       "name": "Generate Recovery Codes",
       "method": "POST",
       "url": "{{ _.baseUrl }}/api/v1/totp/recovery-codes/generate",
       "body": {
         "mimeType": "application/json",
-        "text": "{\n  \"deviceId\": \"alice-iphone-15\",\n  \"count\": 10\n}"
+        "text": "{\n  \"appId\": \"alice-iphone-15-authenticator-v2\",\n  \"count\": 10\n}"
       },
       "headers": [
         { "name": "Content-Type", "value": "application/json" }
@@ -74,13 +113,13 @@
     {
       "_id": "req_recovery_validate",
       "_type": "request",
-      "parentId": "fld_totp",
+      "parentId": "wrk_learning_totp",
       "name": "Validate (Redeem) Recovery Code",
       "method": "POST",
       "url": "{{ _.baseUrl }}/api/v1/totp/recovery-codes/validate",
       "body": {
         "mimeType": "application/json",
-        "text": "{\n  \"deviceId\": \"alice-iphone-15\",\n  \"code\": \"tf8i-exmo-3lcb-slkm\"\n}"
+        "text": "{\n  \"appId\": \"alice-iphone-15-authenticator-v2\",\n  \"code\": \"tf8i-exmo-3lcb-slkm\"\n}"
       },
       "headers": [
         { "name": "Content-Type", "value": "application/json" }

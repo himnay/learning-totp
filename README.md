@@ -2,8 +2,9 @@
 
 <img src="image/spring-logo.png" alt="Spring" width="70"/>
 
-Four REST APIs — **generate**/**validate** a TOTP code, and **generate**/**validate** one-time
-recovery codes — built entirely on beans that
+Six REST APIs — **register** an app, **generate-qr**/**generate** a TOTP code two ways,
+**validate-qr**/**validate** it, and **generate**/**validate** one-time recovery codes — built
+entirely on beans that
 [`totp-spring-boot-starter`](https://github.com/samdjstevens/java-totp/blob/master/totp-spring-boot-starter/README.md)
 auto-configures for [`dev.samstevens.totp`](https://github.com/samdjstevens/java-totp), with the
 secret and recovery codes persisted in Postgres via Flyway-managed migrations.
@@ -12,10 +13,11 @@ This is deliberately narrower in scope than its sibling
 [`learning-utility`](../learning-utility), which wires the plain `dev.samstevens.totp:totp`
 library **by hand** (`new DefaultSecretGenerator()`, `new DefaultCodeVerifier(...)`, etc.) and
 additionally encrypts the secret at rest. This project injects every TOTP collaborator
-(`SecretGenerator`, `QrDataFactory`, `QrGenerator`, `CodeVerifier`, `RecoveryCodeGenerator`) as a
-Spring bean the starter builds for you from `application.yaml` properties — no manual `new
-Default...()` wiring. The trade-off, and a genuine gotcha this README documents in detail, is that
-the starter needed one line of help to even auto-configure on a modern Spring Boot version — see
+(`SecretGenerator`, `QrDataFactory`, `QrGenerator`, `CodeGenerator`, `CodeVerifier`,
+`RecoveryCodeGenerator`) as a Spring bean the starter builds for you from `application.yaml`
+properties — no manual `new Default...()` wiring. The trade-off, and a genuine gotcha this README
+documents in detail, is that the starter needed one line of help to even auto-configure on a
+modern Spring Boot version — see
 [§4](#4-the-gotcha-the-starter-doesnt-auto-configure-out-of-the-box).
 
 ---
@@ -27,7 +29,7 @@ the starter needed one line of help to even auto-configure on a modern Spring Bo
 3. 🚀 [How the starter auto-configures TOTP](#3-how-the-starter-auto-configures-totp)
 4. ⚠️ [The gotcha: the starter doesn't auto-configure out of the box](#4-the-gotcha-the-starter-doesnt-auto-configure-out-of-the-box)
 5. 💡 [How TOTP actually works](#5-how-totp-actually-works)
-6. 🔐 [Why the seed is persisted](#6-why-the-seed-is-persisted)
+6. 🔐 [Why registration is a separate step](#6-why-registration-is-a-separate-step)
 7. 🔑 [Recovery codes](#7-recovery-codes)
 8. 🔹 [Sequence diagrams](#8-sequence-diagrams)
 9. 📚 [API reference](#9-api-reference)
@@ -68,6 +70,7 @@ graph TB
         TAC -->|"@Bean"| SG[SecretGenerator]
         TAC -->|"@Bean"| QDF[QrDataFactory]
         TAC -->|"@Bean"| QG["QrGenerator<br/>(ZxingPngQrGenerator)"]
+        TAC -->|"@Bean"| CG[CodeGenerator]
         TAC -->|"@Bean"| CV[CodeVerifier]
         TAC -->|"@Bean"| RCG[RecoveryCodeGenerator]
     end
@@ -82,10 +85,11 @@ graph TB
         RR[RecoveryCodeRepository]
         C --> S
         C --> RS
-        S -->|secretGenerator.generate<br/>qrDataFactory / qrGenerator<br/>codeVerifier.isValidCode| SG
+        S -->|"register(): secretGenerator.generate()"| SG
         S -.-> QDF
         S -.-> QG
-        S -.-> CV
+        S -->|"generate(): codeGenerator.generate"| CG
+        S -->|"validate(): codeVerifier.isValidCode"| CV
         S --> SR
         RS -->|recoveryCodeGenerator.generateCodes| RCG
         RS --> RR
@@ -102,6 +106,11 @@ graph TB
 `Default*` class — every TOTP collaborator arrives via constructor injection, sourced entirely
 from the starter's auto-configuration. Persistence (`TotpSeedRepository`/`RecoveryCodeRepository`)
 is plain hand-written `JdbcTemplate`, unrelated to the starter.
+
+Enrollment and code retrieval are split into distinct endpoints so each collaborator bean is
+exercised on its own: `register` only touches `SecretGenerator`, `generate-qr` only touches
+`QrDataFactory`/`QrGenerator`, and `generate` only touches `CodeGenerator` — all three read the
+same persisted secret rather than each minting their own.
 
 ---
 
@@ -123,15 +132,18 @@ yourself silently overrides it:
 | `QrDataFactory`     | `new QrDataFactory(hashingAlgorithm, codeLength, timePeriod)` | `totp.code.length`, `totp.time.period` |
 | `QrGenerator`       | `new ZxingPngQrGenerator()`                      | —                                                |
 | `CodeGenerator`     | `new DefaultCodeGenerator(algorithm, codeLength)` | `totp.code.length` (default `6`)                |
-| `CodeVerifier`      | `new DefaultCodeVerifier(codeGenerator, timeProvider)`, `setTimePeriod`/`setAllowedTimePeriodDiscrepancy` applied | `totp.time.period` (default `30`), `totp.time.discrepancy` (default `1`) |
+| `CodeVerifier`      | `new DefaultCodeVerifier(codeGenerator, timeProvider)`, `setTimePeriod`/`setAllowedTimePeriodDiscrepancy` applied | `totp.time.period` (default `30`, **`60` in this project's `application.yaml`**), `totp.time.discrepancy` (default `1`) |
 | `TimeProvider`      | `new SystemTimeProvider()`                       | —                                                |
 | `RecoveryCodeGenerator` | `new RecoveryCodeGenerator()`                | — (used by [§7](#7-recovery-codes))              |
 
-`TotpService` injects `SecretGenerator`, `QrDataFactory`, `QrGenerator` and `CodeVerifier`;
-`RecoveryCodeService` injects `RecoveryCodeGenerator`. Every value in
+`TotpService` injects `SecretGenerator`, `QrDataFactory`, `QrGenerator`, `CodeGenerator` and
+`CodeVerifier`; `RecoveryCodeService` injects `RecoveryCodeGenerator`. Every value in
 [§11](#11-configuration-reference) is a `totp.*` property that `TotpProperties` binds and hands to
-these bean factory methods — change `totp.code.length: 8` in `application.yaml` and both
-`QrDataFactory` and `CodeGenerator` pick up 8-digit codes automatically, with no code change.
+these bean factory methods — change `totp.code.length: 8` in `application.yaml` and `QrDataFactory`,
+`CodeGenerator` and `CodeVerifier` all pick up 8-digit codes automatically, with no code change.
+Likewise `totp.time.period` drives both `CodeVerifier`'s acceptance window and the counter this
+project's `TotpService.generateOtp()` computes by hand (`time / timePeriod`) — see
+[§9](#9-api-reference).
 
 ---
 
@@ -192,7 +204,7 @@ TOTP ([RFC 6238](https://datatracker.ietf.org/doc/html/rfc6238)) is the algorith
 ```mermaid
 flowchart LR
     A["Shared secret<br/>(Base32, random)"] --> D
-    B["Current Unix time"] --> C["counter = floor(time / period)<br/>period = 30s (totp.time.period)"]
+    B["Current Unix time"] --> C["counter = floor(time / period)<br/>period = 60s (totp.time.period)"]
     C --> D["HMAC-SHA1(secret, counter)<br/>20-byte digest"]
     D --> E["Dynamic truncation<br/>(RFC 4226 §5.3)"]
     E --> F["value mod 10^digits"]
@@ -204,7 +216,8 @@ flowchart LR
    human-typeable if QR scanning isn't available.
 2. **Time step** — instead of an incrementing counter, the counter is derived from wall-clock time
    (`floor(unix_time / period)`), so server and phone independently compute the same value with no
-   round trip.
+   round trip. This project sets `totp.time.period: 60`, so **each code is valid for a full 60
+   seconds** rather than the library's 30-second default — see [§11](#11-configuration-reference).
 3. **HMAC-SHA1** — the 8-byte counter is HMAC'd with the secret. SHA1 remains the de facto
    interoperability standard for TOTP (used purely as a keyed PRF here, not for collision
    resistance) — nearly every authenticator app assumes it by default.
@@ -213,36 +226,40 @@ flowchart LR
 
 **Clock drift tolerance:** `codeVerifier.isValidCode(secret, code)` doesn't just check the current
 time step — it also checks `totp.time.discrepancy` steps before/after (default `1`), so a code is
-accepted for roughly the surrounding ±30 seconds. Too narrow and minor clock skew rejects
-legitimate users; too wide and you extend an attacker's replay window if a code is intercepted.
+accepted for roughly the surrounding ±60 seconds on top of its own 60-second window. Too narrow and
+minor clock skew rejects legitimate users; too wide and you extend an attacker's replay window if a
+code is intercepted.
 
 ---
 
-<a id="6-why-the-seed-is-persisted"></a>
-## 6. 🔐 Why the seed is persisted
+<a id="6-why-registration-is-a-separate-step"></a>
+## 6. 🔐 Why registration is a separate step
 
-An earlier version of this project was fully stateless: `/generate` returned the secret and
-`/validate` required the caller to send it back on every request. That's fine for demonstrating
-the starter's beans in isolation, but it's not how TOTP is actually used — trusting the *caller* to
-supply the secret means anyone who intercepts or guesses it can validate against it with no
-binding to a real enrolled device, which defeats the point of server-side verification.
+An earlier version of this project generated a secret and rendered its QR code in the same call
+that enrolled the device. That's fine for demonstrating the starter's beans in isolation, but it
+conflates three independent concerns — minting a secret, showing it as a QR code, and reading the
+current numeric code — that a real client needs to call separately (enroll once, then repeatedly
+ask "what's the code right now?"). This project now splits them:
 
-`TotpSeedRepository` (plain `JdbcTemplate` over `totp_seed`, migrated by Flyway — see
-[§10](#10-data-model)) closes that gap:
-
-- **Enrollment** (`POST /generate`) persists the secret against `deviceId` — `upsert()` is an
-  `INSERT ... ON CONFLICT (device_id) DO UPDATE`, so calling `/generate` again for a device that
+- **Registration** (`POST /register`) persists the secret against `appId` — `upsert()` is an
+  `INSERT ... ON CONFLICT (app_id) DO UPDATE`, so calling `/register` again for an app id that
   already has a seed **rotates the secret**, invalidating whatever was scanned into an
-  authenticator app before. This mirrors real "reset my 2FA for this device" flows, which are also
+  authenticator app before. This mirrors real "reset my 2FA for this app" flows, which are also
   destructive by nature.
-- **Validation** (`POST /validate`) now takes only `deviceId` and `code` — the secret never
-  travels in the request at all. `TotpService.validate()` looks the seed up itself
-  (`TotpSeedRepository.findByDeviceId`) and throws `DeviceNotFoundException` (→ 404) if
-  `/generate` was never called for that device.
+- **`appId`, not `deviceId`** — a physical device can host more than one install (or version) of
+  an MFA app, each needing its own secret, so the enrollment key names the *app install*, not the
+  device it happens to run on. `totp_seed`/`totp_recovery_code` are keyed by `app_id` (see
+  [§10](#10-data-model), migrated from `device_id` by `V3__rename_device_id_to_app_id.sql`).
+- **`/generate-qr` and `/generate-code`** both require an existing registration — they look the secret
+  up (`TotpSeedRepository.findByAppId`) rather than minting a new one, and throw
+  `AppNotFoundException` (→ 404) if `/register` was never called for that `appId`.
+- **Validation** (`POST /validate-code` and `POST /validate-qr` — identical logic, kept as two routes
+  since which enrollment path a client used doesn't change how a code is checked) takes only
+  `appId` and `code` — the secret never travels in the request at all.
 
 **What this still doesn't do**, to be explicit about scope: the secret column is stored as-is, not
 encrypted at rest (unlike `learning-utility`'s `TotpSecretCipher`, AES-256-GCM), and there's no
-authentication gate on either endpoint — anyone who knows a `deviceId` can validate against it or
+authentication gate on any endpoint — anyone who knows an `appId` can validate against it or
 trigger a rotation. Both are real gaps for a production deployment; they're out of scope here
 because the focus of this repo is the starter's auto-configuration and the persistence model, not
 re-implementing `learning-utility`'s security hardening a second time.
@@ -264,11 +281,11 @@ Each code is 16 characters — digits and lowercase Latin letters, dash-grouped 
 roughly 82 bits of entropy per the library's own documentation. Two rules this project enforces
 around them:
 
-- **Requires an existing device.** `POST /recovery-codes/generate` throws `DeviceNotFoundException`
-  (→ 404) unless `/generate` (the TOTP one) has already been called for that `deviceId` — recovery
-  codes are a fallback *for* an enrolled TOTP secret, not a standalone credential.
+- **Requires an existing registration.** `POST /recovery-codes/generate` throws
+  `AppNotFoundException` (→ 404) unless `/register` has already been called for that `appId` —
+  recovery codes are a fallback *for* an enrolled TOTP secret, not a standalone credential.
 - **Regenerating replaces the batch.** `RecoveryCodeRepository.replaceAll()` deletes every code
-  previously issued for the device before inserting the new batch (in a single method, not two
+  previously issued for the app before inserting the new batch (in a single method, not two
   separate calls a client could interleave with a redeem) — old codes stop working the moment new
   ones are issued, same rotation semantics as the TOTP secret itself.
 - **Each code works exactly once.** `POST /recovery-codes/validate` calls
@@ -276,24 +293,47 @@ around them:
 
   ```sql
   UPDATE totp_recovery_code SET used = TRUE, used_at = NOW()
-  WHERE device_id = ? AND code = ? AND used = FALSE
+  WHERE app_id = ? AND code = ? AND used = FALSE
   ```
 
   The row only flips if it exists **and** is still unused, and the returned row-count (0 or 1) is
   the whole result — no separate read-then-write, so two concurrent redemption attempts with the
-  same code can't both succeed. A wrong code, an already-used code, and an unknown device all
+  same code can't both succeed. A wrong code, an already-used code, and an unknown app all
   return `{"valid": false}` with the same 200 response, deliberately — distinguishing them in the
   response would let an attacker probe which codes are real.
 
 Like the TOTP secret, codes are stored as plain text in `totp_recovery_code`, not hashed — see the
-scope note at the end of [§6](#6-why-the-seed-is-persisted); the same trade-off applies here.
+scope note at the end of [§6](#6-why-registration-is-a-separate-step); the same trade-off applies
+here.
 
 ---
 
 <a id="8-sequence-diagrams"></a>
 ## 8. 🔹 Sequence diagrams
 
-### TOTP enrollment — generate a secret and scan it into an authenticator app
+### Registration — generate and persist a secret
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant API as TotpController
+    participant Svc as TotpService
+    participant SG as SecretGenerator
+    participant Repo as TotpSeedRepository
+    participant DB as Postgres (totp_seed)
+
+    User->>API: POST /api/v1/totp/register {appId, issuer?}
+    API->>Svc: register(appId, issuer)
+    Svc->>SG: secretGenerator.generate()
+    SG-->>Svc: Base32 secret
+    Svc->>Repo: upsert(appId, issuer, secret)
+    Repo->>DB: INSERT ... ON CONFLICT (app_id) DO UPDATE
+    DB-->>Repo: ok
+    Svc-->>API: {appId, issuer, secret, otpAuthUri}
+    API-->>User: 200 OK (JSON)
+```
+
+### `/generate-qr` — render the enrollment QR code for an already-registered app
 
 ```mermaid
 sequenceDiagram
@@ -301,27 +341,46 @@ sequenceDiagram
     participant App as Authenticator App
     participant API as TotpController
     participant Svc as TotpService
-    participant SG as SecretGenerator
     participant Repo as TotpSeedRepository
     participant DB as Postgres (totp_seed)
     participant QG as QrGenerator
 
-    User->>API: POST /api/v1/totp/generate {deviceId, issuer?}
-    API->>Svc: generate(deviceId, issuer)
-    Svc->>SG: secretGenerator.generate()
-    SG-->>Svc: Base32 secret
-    Svc->>Repo: upsert(deviceId, issuer, secret)
-    Repo->>DB: INSERT ... ON CONFLICT (device_id) DO UPDATE
-    DB-->>Repo: ok
+    User->>API: POST /api/v1/totp/generate-qr {appId}
+    API->>Svc: generateQr(appId)
+    Svc->>Repo: findByAppId(appId)
+    Repo->>DB: SELECT ... WHERE app_id = ?
+    DB-->>Repo: seed row
     Svc->>QG: qrGenerator.generate(qrData)
     QG-->>Svc: PNG bytes
-    Svc-->>API: {deviceId, issuer, secret, otpAuthUri, qrCodeDataUri}
+    Svc-->>API: {appId, issuer, otpAuthUri, qrCodeDataUri}
     API-->>User: 200 OK (JSON)
     User->>App: scan the QR
     Note over App: computes codes offline from here on
 ```
 
-### TOTP validation — server looks the secret up itself
+### `/generate-code` — read the current numeric code for an already-registered app
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant API as TotpController
+    participant Svc as TotpService
+    participant Repo as TotpSeedRepository
+    participant DB as Postgres (totp_seed)
+    participant CG as CodeGenerator
+
+    User->>API: POST /api/v1/totp/generate-code {appId}
+    API->>Svc: generateOtp(appId)
+    Svc->>Repo: findByAppId(appId)
+    Repo->>DB: SELECT ... WHERE app_id = ?
+    DB-->>Repo: seed row
+    Svc->>CG: codeGenerator.generate(secret, time / 60)
+    CG-->>Svc: 6-digit code
+    Svc-->>API: {appId, code, validForSeconds}
+    API-->>User: 200 OK (JSON)
+```
+
+### `/validate-code` and `/validate-qr` — server looks the secret up itself
 
 ```mermaid
 sequenceDiagram
@@ -334,13 +393,13 @@ sequenceDiagram
     participant Ver as CodeVerifier
 
     App->>App: code = HMAC-SHA1(secret, counter), truncated
-    User->>API: POST /api/v1/totp/validate {deviceId, code}
-    API->>Svc: validate(deviceId, code)
-    Svc->>Repo: findByDeviceId(deviceId)
-    Repo->>DB: SELECT ... WHERE device_id = ?
+    User->>API: POST /api/v1/totp/validate-code (or /validate-qr) {appId, code}
+    API->>Svc: validate(appId, code)
+    Svc->>Repo: findByAppId(appId)
+    Repo->>DB: SELECT ... WHERE app_id = ?
     alt no seed found
         DB-->>Repo: no rows
-        Svc-->>API: throw DeviceNotFoundException
+        Svc-->>API: throw AppNotFoundException
         API-->>User: 404 Not Found (ApiError)
     else seed found
         DB-->>Repo: seed row
@@ -363,27 +422,27 @@ sequenceDiagram
     participant RRepo as RecoveryCodeRepository
     participant DB as Postgres (totp_recovery_code)
 
-    User->>API: POST /recovery-codes/generate {deviceId, count?}
-    API->>RSvc: generate(deviceId, count)
-    RSvc->>SeedRepo: findByDeviceId(deviceId)
-    alt no TOTP seed for this device
+    User->>API: POST /recovery-codes/generate {appId, count?}
+    API->>RSvc: generate(appId, count)
+    RSvc->>SeedRepo: findByAppId(appId)
+    alt no TOTP seed for this app
         SeedRepo-->>RSvc: null
-        RSvc-->>API: throw DeviceNotFoundException
+        RSvc-->>API: throw AppNotFoundException
         API-->>User: 404 Not Found
     else seed exists
         RSvc->>RCG: generateCodes(count)
         RCG-->>RSvc: String[] codes
-        RSvc->>RRepo: replaceAll(deviceId, codes)
+        RSvc->>RRepo: replaceAll(appId, codes)
         RRepo->>DB: DELETE old rows, INSERT new batch
         RSvc-->>API: codes
-        API-->>User: 200 OK {deviceId, codes}
+        API-->>User: 200 OK {appId, codes}
     end
 
     Note over User: later, device unavailable — user submits a recovery code instead
-    User->>API: POST /recovery-codes/validate {deviceId, code}
-    API->>RSvc: validate(deviceId, code)
-    RSvc->>RRepo: redeem(deviceId, code)
-    RRepo->>DB: UPDATE ... SET used=TRUE WHERE device_id=? AND code=? AND used=FALSE
+    User->>API: POST /recovery-codes/validate {appId, code}
+    API->>RSvc: validate(appId, code)
+    RSvc->>RRepo: redeem(appId, code)
+    RRepo->>DB: UPDATE ... SET used=TRUE WHERE app_id=? AND code=? AND used=FALSE
     DB-->>RRepo: rows updated (0 or 1)
     RRepo-->>RSvc: true | false
     RSvc-->>API: valid
@@ -399,64 +458,113 @@ An `otpauth://` QR generated by this app (scan it with any authenticator to see 
 <a id="9-api-reference"></a>
 ## 9. 📚 API reference
 
-Swagger UI: `http://localhost:8096/swagger-ui.html` — an interactive form for all four endpoints
+Swagger UI: `http://localhost:8096/swagger-ui.html` — an interactive form for all six endpoints
 below, generated from the springdoc `@Operation`/`@Schema` annotations on
 [`TotpController`](src/main/java/com/org/learning/totp/controller/TotpController.java) and the
 DTOs.
 
-### `POST /api/v1/totp/generate` — create/rotate a device's secret and enrollment QR code
+### `POST /api/v1/totp/register` — create/rotate an app's secret
 
 ```bash
-curl -s -X POST http://localhost:8096/api/v1/totp/generate \
+curl -s -X POST http://localhost:8096/api/v1/totp/register \
   -H "Content-Type: application/json" \
-  -d '{"deviceId": "alice-iphone-15"}'
+  -d '{"appId": "alice-iphone-15-authenticator-v2"}'
 ```
 
 ```json
 {
-  "deviceId": "alice-iphone-15",
+  "appId": "alice-iphone-15-authenticator-v2",
   "issuer": "learning-totp",
   "secret": "JBSWY3DPEHPK3PXP",
-  "otpAuthUri": "otpauth://totp/learning-totp:alice-iphone-15?secret=JBSWY3DPEHPK3PXP&issuer=learning-totp&algorithm=SHA1&digits=6&period=30",
+  "otpAuthUri": "otpauth://totp/learning-totp:alice-iphone-15-authenticator-v2?secret=JBSWY3DPEHPK3PXP&issuer=learning-totp&algorithm=SHA1&digits=6&period=60"
+}
+```
+
+`issuer` is optional (defaults to `learning-totp`). The secret is persisted against `appId` —
+calling this again for the same app id **rotates** it. `400` (`ApiError`) if `appId` is blank.
+
+### `POST /api/v1/totp/generate-qr` — enrollment QR code for an already-registered app
+
+```bash
+curl -s -X POST http://localhost:8096/api/v1/totp/generate-qr \
+  -H "Content-Type: application/json" \
+  -d '{"appId": "alice-iphone-15-authenticator-v2"}'
+```
+
+```json
+{
+  "appId": "alice-iphone-15-authenticator-v2",
+  "issuer": "learning-totp",
+  "otpAuthUri": "otpauth://totp/learning-totp:alice-iphone-15-authenticator-v2?secret=JBSWY3DPEHPK3PXP&issuer=learning-totp&algorithm=SHA1&digits=6&period=60",
   "qrCodeDataUri": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA..."
 }
 ```
 
-`issuer` is optional (defaults to `learning-totp`). The secret is persisted against `deviceId` —
-calling this again for the same device **rotates** it. `qrCodeDataUri` can be dropped straight
-into an `<img src="...">` tag. `400` (`ApiError`) if `deviceId` is blank.
+`qrCodeDataUri` can be dropped straight into an `<img src="...">` tag. `404` (`ApiError`) if
+`/register` was never called for `appId`.
 
-### `POST /api/v1/totp/validate` — check a code against the saved secret for a device
+### `POST /api/v1/totp/generate-code` — the current numeric code for an already-registered app
 
 ```bash
-curl -s -X POST http://localhost:8096/api/v1/totp/validate \
+curl -s -X POST http://localhost:8096/api/v1/totp/generate-code \
   -H "Content-Type: application/json" \
-  -d '{"deviceId": "alice-iphone-15", "code": "123456"}'
+  -d '{"appId": "alice-iphone-15-authenticator-v2"}'
+```
+
+```json
+{ "appId": "alice-iphone-15-authenticator-v2", "code": "482913", "validForSeconds": 42 }
+```
+
+`code` is the code for the *current* time step, computed via the auto-configured `CodeGenerator` —
+the same value an enrolled authenticator app would be showing right now. `validForSeconds` counts
+down to `0` as the 60-second window (`totp.time.period`) elapses, then a new code takes over.
+`404` (`ApiError`) if `/register` was never called for `appId`.
+
+### `POST /api/v1/totp/validate-qr` — check a code from an app enrolled via `/generate-qr`
+
+```bash
+curl -s -X POST http://localhost:8096/api/v1/totp/validate-qr \
+  -H "Content-Type: application/json" \
+  -d '{"appId": "alice-iphone-15-authenticator-v2", "code": "123456"}'
 ```
 
 ```json
 { "valid": true }
 ```
 
-A wrong code is `200 { "valid": false }`, not an error. `404` (`ApiError`) if `/generate` was never
-called for `deviceId`. `400` if `deviceId`/`code` is blank or `code` isn't numeric.
+### `POST /api/v1/totp/validate-code` — check a code against the saved secret for an app
+
+```bash
+curl -s -X POST http://localhost:8096/api/v1/totp/validate-code \
+  -H "Content-Type: application/json" \
+  -d '{"appId": "alice-iphone-15-authenticator-v2", "code": "123456"}'
+```
+
+```json
+{ "valid": true }
+```
+
+`/validate-code` and `/validate-qr` run the exact same check — separate routes, identical logic, since
+validation doesn't depend on how the app was enrolled. A wrong code is `200 { "valid": false }`,
+not an error. `404` (`ApiError`) if `/register` was never called for `appId`. `400` if
+`appId`/`code` is blank or `code` isn't numeric.
 
 ### `POST /api/v1/totp/recovery-codes/generate` — issue one-time backup codes
 
 ```bash
 curl -s -X POST http://localhost:8096/api/v1/totp/recovery-codes/generate \
   -H "Content-Type: application/json" \
-  -d '{"deviceId": "alice-iphone-15", "count": 10}'
+  -d '{"appId": "alice-iphone-15-authenticator-v2", "count": 10}'
 ```
 
 ```json
 {
-  "deviceId": "alice-iphone-15",
+  "appId": "alice-iphone-15-authenticator-v2",
   "codes": ["tf8i-exmo-3lcb-slkm", "boyv-yq75-z99k-r308", "..."]
 }
 ```
 
-`count` is optional (default `10`, max `20`). Requires an existing TOTP secret for `deviceId` —
+`count` is optional (default `10`, max `20`). Requires an existing TOTP secret for `appId` —
 `404` (`ApiError`) otherwise. Calling this again **replaces** the previous batch — codes are
 returned once and never retrievable again.
 
@@ -465,7 +573,7 @@ returned once and never retrievable again.
 ```bash
 curl -s -X POST http://localhost:8096/api/v1/totp/recovery-codes/validate \
   -H "Content-Type: application/json" \
-  -d '{"deviceId": "alice-iphone-15", "code": "tf8i-exmo-3lcb-slkm"}'
+  -d '{"appId": "alice-iphone-15-authenticator-v2", "code": "tf8i-exmo-3lcb-slkm"}'
 ```
 
 ```json
@@ -473,40 +581,42 @@ curl -s -X POST http://localhost:8096/api/v1/totp/recovery-codes/validate \
 ```
 
 `valid` is `true` only the *first* time a given code is submitted — a second attempt with the same
-code, a wrong code, or an unknown device all return `{"valid": false}`, `200`, indistinguishably.
+code, a wrong code, or an unknown app all return `{"valid": false}`, `200`, indistinguishably.
 
-An Insomnia collection covering all four endpoints is at `insomnia-collection.json`.
+An Insomnia collection covering all six endpoints is at `insomnia-collection.json`.
 
 ---
 
 <a id="10-data-model"></a>
 ## 10. 🗄️ Data model
 
-Two tables, both migrated by Flyway on startup (`src/main/resources/db/migration/`):
+Two tables, migrated by Flyway on startup (`src/main/resources/db/migration/`), originally created
+keyed by `device_id` (`V1`/`V2`) and renamed to `app_id` by `V3` — see [§6](#6-why-registration-is-a-separate-step)
+for why:
 
-**`totp_seed`** (`V1__create_totp_seed.sql`) — one row per device:
+**`totp_seed`** (`V1__create_totp_seed.sql`, renamed by `V3`) — one row per registered app install:
 
 | Column       | Type           | Notes                                     |
 |--------------|----------------|--------------------------------------------|
 | `id`         | `BIGSERIAL`    | primary key                                |
-| `device_id`  | `VARCHAR(100)` | `NOT NULL UNIQUE`                          |
+| `app_id`     | `VARCHAR(100)` | `NOT NULL UNIQUE`                          |
 | `issuer`     | `VARCHAR(100)` | `NOT NULL`                                 |
 | `secret`     | `VARCHAR(64)`  | `NOT NULL` — Base32, stored as-is          |
 | `created_at` | `TIMESTAMPTZ`  | `NOT NULL DEFAULT NOW()`, refreshed on rotation |
 
-**`totp_recovery_code`** (`V2__create_totp_recovery_code.sql`) — many rows per device:
+**`totp_recovery_code`** (`V2__create_totp_recovery_code.sql`, renamed by `V3`) — many rows per app:
 
 | Column       | Type           | Notes                                              |
 |--------------|----------------|------------------------------------------------------|
 | `id`         | `BIGSERIAL`    | primary key                                          |
-| `device_id`  | `VARCHAR(100)` | `NOT NULL`, `REFERENCES totp_seed (device_id) ON DELETE CASCADE` |
-| `code`       | `VARCHAR(32)`  | `NOT NULL`, unique per `(device_id, code)`           |
+| `app_id`     | `VARCHAR(100)` | `NOT NULL`, `REFERENCES totp_seed (app_id) ON DELETE CASCADE` |
+| `code`       | `VARCHAR(32)`  | `NOT NULL`, unique per `(app_id, code)`              |
 | `used`       | `BOOLEAN`      | `NOT NULL DEFAULT FALSE`                             |
 | `used_at`    | `TIMESTAMPTZ`  | set by `redeem()` when a code is spent               |
 | `created_at` | `TIMESTAMPTZ`  | `NOT NULL DEFAULT NOW()`                             |
 
-`ON DELETE CASCADE` means a device's recovery codes are removed automatically if its `totp_seed`
-row is ever deleted directly — there's no code path that does that today (`/generate` upserts, it
+`ON DELETE CASCADE` means an app's recovery codes are removed automatically if its `totp_seed`
+row is ever deleted directly — there's no code path that does that today (`/register` upserts, it
 never deletes), but the constraint keeps the two tables consistent if one is added later.
 
 ---
@@ -516,19 +626,18 @@ never deletes), but the constraint keeps the two tables consistent if one is add
 
 All `totp.*` properties are bound by the starter's own `TotpProperties`
 (`@ConfigurationProperties(prefix = "totp")`) — see [§3](#3-how-the-starter-auto-configures-totp)
-for exactly which bean each one feeds. Every value below is the library's own default, spelled out
-in `application.yaml` so they're easy to find and override.
+for exactly which bean each one feeds.
 
-| Property                 | Meaning                                    | Default          |
-|----------------------------|---------------------------------------------|-------------------|
-| `totp.secret.length`       | Characters in a newly generated secret       | `32`              |
-| `totp.code.length`         | Digits in a generated/validated code         | `6`               |
-| `totp.time.period`         | Seconds per time step                        | `30`              |
-| `totp.time.discrepancy`    | +/- time steps tolerated during validation   | `1`               |
-| `server.port`              | —                                             | `8096`            |
-| `spring.datasource.url`    | via `POSTGRES_HOST`/`POSTGRES_PORT`/`POSTGRES_DB` | `jdbc:postgresql://localhost:5433/totp` |
-| `spring.datasource.username` | via `POSTGRES_USER`                        | `totp`            |
-| `spring.datasource.password` | via `POSTGRES_PASSWORD`                    | `totp`            |
+| Property                 | Meaning                                    | Library default  | This project     |
+|----------------------------|---------------------------------------------|-------------------|-------------------|
+| `totp.secret.length`       | Characters in a newly generated secret       | `32`              | `32`              |
+| `totp.code.length`         | Digits in a generated/validated code         | `6`               | `6`               |
+| `totp.time.period`         | Seconds per time step                        | `30`              | **`60`** — each code stays valid for a full minute |
+| `totp.time.discrepancy`    | +/- time steps tolerated during validation   | `1`               | `1`               |
+| `server.port`              | —                                             | —                | `8096`            |
+| `spring.datasource.url`    | via `POSTGRES_HOST`/`POSTGRES_PORT`/`POSTGRES_DB` | —           | `jdbc:postgresql://localhost:5433/totp` |
+| `spring.datasource.username` | via `POSTGRES_USER`                        | —                | `totp`            |
+| `spring.datasource.password` | via `POSTGRES_PASSWORD`                    | —                | `totp`            |
 
 Changing the hashing algorithm or time source isn't a property — the starter expects a bean
 override instead (see `TotpAutoConfiguration`'s `@ConditionalOnMissingBean` methods in
@@ -562,22 +671,23 @@ src/main/java/com/org/learning/totp/
     TotpStarterConfig.java             @Import(TotpAutoConfiguration.class) — see §4
 
   domain/
-    TotpSeed.java                      persisted row: deviceId, issuer, secret, createdAt
+    TotpSeed.java                      persisted row: appId, issuer, secret, createdAt
 
   repository/
-    TotpSeedRepository.java            upsert() / findByDeviceId()
+    TotpSeedRepository.java            upsert() / findByAppId()
     RecoveryCodeRepository.java        replaceAll() / redeem()
 
   service/
-    TotpService.java                   generate() / validate() — persists + looks up via TotpSeedRepository
+    TotpService.java                   register() / generateQr() / generateOtp() / validate()
     RecoveryCodeService.java           generate() / validate() — requires an existing seed
 
   controller/
-    TotpController.java                POST /api/v1/totp/{generate,validate,recovery-codes/generate,recovery-codes/validate}
+    TotpController.java                POST /api/v1/totp/{register,generate-qr,generate-code,validate-qr,validate-code,recovery-codes/generate,recovery-codes/validate}
     GlobalExceptionHandler.java        maps exceptions to ApiError
 
   dto/
-    GenerateTotpRequest.java / GenerateTotpResponse.java
+    RegisterDeviceRequest.java / RegisterDeviceResponse.java
+    AppIdRequest.java / GenerateQrResponse.java / GenerateOtpResponse.java
     ValidateTotpRequest.java / ValidateTotpResponse.java
     GenerateRecoveryCodesRequest.java / GenerateRecoveryCodesResponse.java
     ValidateRecoveryCodeRequest.java / ValidateRecoveryCodeResponse.java
@@ -585,13 +695,15 @@ src/main/java/com/org/learning/totp/
 
   exception/
     QrCodeRenderException.java         wraps the checked QrGenerationException
-    DeviceNotFoundException.java       -> 404
+    OtpGenerationException.java        wraps the checked CodeGenerationException
+    AppNotFoundException.java          -> 404
 
 src/main/resources/
   application.yaml                     datasource, totp.*, springdoc.*
   db/migration/
     V1__create_totp_seed.sql
     V2__create_totp_recovery_code.sql
+    V3__rename_device_id_to_app_id.sql
 
 src/test/java/com/org/learning/totp/
   LearningTotpApplicationTests.java    Testcontainers-backed context load
@@ -613,8 +725,9 @@ maps every exception escaping `TotpController` to a shared `ApiError` JSON shape
 | Exception                          | HTTP status                        |
 |-------------------------------------|-------------------------------------|
 | `MethodArgumentNotValidException`   | 400 Bad Request                     |
-| `DeviceNotFoundException`           | 404 Not Found                       |
+| `AppNotFoundException`              | 404 Not Found                       |
 | `QrCodeRenderException`             | 500 Internal Server Error (logged)  |
+| `OtpGenerationException`            | 500 Internal Server Error (logged)  |
 | anything else                       | 500 Internal Server Error (logged)  |
 
 ---
@@ -648,17 +761,19 @@ layer both work, not just that the code compiles. Requires a running Docker daem
 
 [`TotpControllerTest`](src/test/java/com/org/learning/totp/controller/TotpControllerTest.java):
 
-- `generateReturnsASecretAndAScannableQrCode` — asserts the secret matches a 32-char Base32
-  pattern and the QR code is a real `data:image/png;base64,...` URI.
-- `generateThenValidateWithTheCurrentCodeSucceeds` — generates a secret, independently recomputes
-  the current code via the auto-configured `CodeGenerator`/`TimeProvider` beans, and asserts
-  `/validate` accepts it against the persisted seed.
-- `validateWithAWrongCodeReturnsFalseNotAnError` / `validateForAnUnknownDeviceReturns404` /
-  `generateWithABlankDeviceIdReturns400` — the three non-happy paths.
+- `registerReturnsASecretAndAnOtpAuthUri` — asserts the secret matches a 32-char Base32 pattern.
+- `generateQrForARegisteredAppReturnsAScannableQrCode` / `generateQrForAnUnregisteredAppReturns404`
+  — `/generate-qr`/`/generate-code` require a prior `/register`.
+- `generateReturnsTheCurrentNumericCodeAndItValidatesSuccessfully` — registers an app,
+  independently recomputes the current code via the auto-configured `CodeGenerator`/`TimeProvider`
+  beans, asserts `/generate-code` returns that exact code, and that `/validate-code` accepts it.
+- `validateQrAndValidateAgreeOnTheSameCode` — both validate routes accept the same current code.
+- `validateWithAWrongCodeReturnsFalseNotAnError` / `validateForAnUnregisteredAppReturns404` /
+  `registerWithABlankAppIdReturns400` — the non-happy paths.
 - `recoveryCodesCanBeGeneratedAndEachRedeemedExactlyOnce` — generates a batch, redeems the first
   code successfully, then asserts the *same* code fails the second time.
-- `generatingRecoveryCodesForAnUnenrolledDeviceReturns404` — the device-must-exist-first rule.
+- `generatingRecoveryCodesForAnUnregisteredAppReturns404` — the app-must-exist-first rule.
 
 [`TotpSeedRepositoryTest`](src/test/java/com/org/learning/totp/repository/TotpSeedRepositoryTest.java)
 tests the JDBC layer in isolation (no web layer): upsert-then-find round trip, secret rotation on
-conflict, and `null` (not an exception) for a missing device.
+conflict, and `null` (not an exception) for a missing app.

@@ -32,33 +32,33 @@ class TotpSeedRepositoryTest {
     private TotpSeedRepository repository;
 
     @Test
-    @DisplayName("upsert() then findByDeviceId() round-trips a seed")
+    @DisplayName("upsert() then findByAppId() round-trips a seed")
     void upsertThenFind() {
-        repository.upsert("device-a", "learning-totp", "JBSWY3DPEHPK3PXP");
+        repository.upsert("app-a", "learning-totp", "JBSWY3DPEHPK3PXP");
 
-        var seed = repository.findByDeviceId("device-a");
+        var seed = repository.findByAppId("app-a");
 
         assertThat(seed).isNotNull();
-        assertThat(seed.deviceId()).isEqualTo("device-a");
+        assertThat(seed.appId()).isEqualTo("app-a");
         assertThat(seed.issuer()).isEqualTo("learning-totp");
         assertThat(seed.secret()).isEqualTo("JBSWY3DPEHPK3PXP");
         assertThat(seed.createdAt()).isNotNull();
     }
 
     @Test
-    @DisplayName("upsert() called again for the same device rotates the secret instead of duplicating the row")
+    @DisplayName("upsert() called again for the same app rotates the secret instead of duplicating the row")
     void upsertRotatesSecretOnConflict() {
-        repository.upsert("device-b", "learning-totp", "OLDSECRET00000000");
-        repository.upsert("device-b", "learning-totp", "NEWSECRET00000000");
+        repository.upsert("app-b", "learning-totp", "OLDSECRET00000000");
+        repository.upsert("app-b", "learning-totp", "NEWSECRET00000000");
 
-        var seed = repository.findByDeviceId("device-b");
+        var seed = repository.findByAppId("app-b");
 
         assertThat(seed.secret()).isEqualTo("NEWSECRET00000000");
     }
 
     @Test
-    @DisplayName("findByDeviceId() returns null (not an exception) when nothing is saved")
+    @DisplayName("findByAppId() returns null (not an exception) when nothing is saved")
     void findReturnsNullWhenMissing() {
-        assertThat(repository.findByDeviceId("nobody")).isNull();
+        assertThat(repository.findByAppId("nobody")).isNull();
     }
 }

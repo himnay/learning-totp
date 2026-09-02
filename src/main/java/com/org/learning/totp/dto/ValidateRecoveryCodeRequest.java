@@ -5,7 +5,7 @@ import jakarta.validation.constraints.NotBlank;
 
 /** Request body for {@code POST /api/v1/totp/recovery-codes/validate}. */
 public record ValidateRecoveryCodeRequest(
-    @Schema(example = "alice-iphone-15") @NotBlank(message = "deviceId must not be blank") String deviceId,
+    @Schema(example = "alice-iphone-15-authenticator-v2") @NotBlank(message = "appId must not be blank") String appId,
     @Schema(description = "One of the codes returned by /recovery-codes/generate", example = "tf8i-exmo-3lcb-slkm")
         @NotBlank(message = "code must not be blank")
         String code) {}

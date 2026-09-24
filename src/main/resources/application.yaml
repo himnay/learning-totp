@@ -23,7 +23,7 @@ totp:
   code:
     length: 6       # digits in a generated/validated code
   time:
-    period: 60      # seconds per time step
+    period: 30      # seconds per time step — RFC 6238 default; Google Authenticator ignores any other period
     discrepancy: 1  # +/- time steps tolerated during validation
 
 springdoc:

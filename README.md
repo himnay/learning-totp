@@ -132,7 +132,7 @@ yourself silently overrides it:
 | `QrDataFactory`     | `new QrDataFactory(hashingAlgorithm, codeLength, timePeriod)` | `totp.code.length`, `totp.time.period` |
 | `QrGenerator`       | `new ZxingPngQrGenerator()`                      | —                                                |
 | `CodeGenerator`     | `new DefaultCodeGenerator(algorithm, codeLength)` | `totp.code.length` (default `6`)                |
-| `CodeVerifier`      | `new DefaultCodeVerifier(codeGenerator, timeProvider)`, `setTimePeriod`/`setAllowedTimePeriodDiscrepancy` applied | `totp.time.period` (default `30`, **`60` in this project's `application.yaml`**), `totp.time.discrepancy` (default `1`) |
+| `CodeVerifier`      | `new DefaultCodeVerifier(codeGenerator, timeProvider)`, `setTimePeriod`/`setAllowedTimePeriodDiscrepancy` applied | `totp.time.period` (default `30`, also `30` here — see the note in §3), `totp.time.discrepancy` (default `1`) |
 | `TimeProvider`      | `new SystemTimeProvider()`                       | —                                                |
 | `RecoveryCodeGenerator` | `new RecoveryCodeGenerator()`                | — (used by [§7](#7-recovery-codes))              |
 
@@ -204,7 +204,7 @@ TOTP ([RFC 6238](https://datatracker.ietf.org/doc/html/rfc6238)) is the algorith
 ```mermaid
 flowchart LR
     A["Shared secret<br/>(Base32, random)"] --> D
-    B["Current Unix time"] --> C["counter = floor(time / period)<br/>period = 60s (totp.time.period)"]
+    B["Current Unix time"] --> C["counter = floor(time / period)<br/>period = 30s (totp.time.period)"]
     C --> D["HMAC-SHA1(secret, counter)<br/>20-byte digest"]
     D --> E["Dynamic truncation<br/>(RFC 4226 §5.3)"]
     E --> F["value mod 10^digits"]
@@ -216,8 +216,10 @@ flowchart LR
    human-typeable if QR scanning isn't available.
 2. **Time step** — instead of an incrementing counter, the counter is derived from wall-clock time
    (`floor(unix_time / period)`), so server and phone independently compute the same value with no
-   round trip. This project sets `totp.time.period: 60`, so **each code is valid for a full 60
-   seconds** rather than the library's 30-second default — see [§11](#11-configuration-reference).
+   round trip. This project uses the standard `totp.time.period: 30`. It used to be 60, which the
+   `otpauth://` URI does advertise (`period=60`) — but **Google Authenticator ignores `period` and
+   always uses 30 s**, so a phone enrolled from the QR code produced codes the server rejected.
+   Keep 30 unless every client you support honours the parameter — see [§11](#11-configuration-reference).
 3. **HMAC-SHA1** — the 8-byte counter is HMAC'd with the secret. SHA1 remains the de facto
    interoperability standard for TOTP (used purely as a keyed PRF here, not for collision
    resistance) — nearly every authenticator app assumes it by default.
@@ -226,7 +228,7 @@ flowchart LR
 
 **Clock drift tolerance:** `codeVerifier.isValidCode(secret, code)` doesn't just check the current
 time step — it also checks `totp.time.discrepancy` steps before/after (default `1`), so a code is
-accepted for roughly the surrounding ±60 seconds on top of its own 60-second window. Too narrow and
+accepted for roughly the surrounding ±30 seconds on top of its own 30-second window. Too narrow and
 minor clock skew rejects legitimate users; too wide and you extend an attacker's replay window if a
 code is intercepted.
 
@@ -476,7 +478,7 @@ curl -s -X POST http://localhost:8096/api/v1/totp/register \
   "appId": "alice-iphone-15-authenticator-v2",
   "issuer": "learning-totp",
   "secret": "JBSWY3DPEHPK3PXP",
-  "otpAuthUri": "otpauth://totp/learning-totp:alice-iphone-15-authenticator-v2?secret=JBSWY3DPEHPK3PXP&issuer=learning-totp&algorithm=SHA1&digits=6&period=60"
+  "otpAuthUri": "otpauth://totp/learning-totp:alice-iphone-15-authenticator-v2?secret=JBSWY3DPEHPK3PXP&issuer=learning-totp&algorithm=SHA1&digits=6&period=30"
 }
 ```
 
@@ -495,7 +497,7 @@ curl -s -X POST http://localhost:8096/api/v1/totp/generate-qr \
 {
   "appId": "alice-iphone-15-authenticator-v2",
   "issuer": "learning-totp",
-  "otpAuthUri": "otpauth://totp/learning-totp:alice-iphone-15-authenticator-v2?secret=JBSWY3DPEHPK3PXP&issuer=learning-totp&algorithm=SHA1&digits=6&period=60",
+  "otpAuthUri": "otpauth://totp/learning-totp:alice-iphone-15-authenticator-v2?secret=JBSWY3DPEHPK3PXP&issuer=learning-totp&algorithm=SHA1&digits=6&period=30",
   "qrCodeDataUri": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA..."
 }
 ```
@@ -512,12 +514,12 @@ curl -s -X POST http://localhost:8096/api/v1/totp/generate-code \
 ```
 
 ```json
-{ "appId": "alice-iphone-15-authenticator-v2", "code": "482913", "validForSeconds": 42 }
+{ "appId": "alice-iphone-15-authenticator-v2", "code": "482913", "validForSeconds": 12 }
 ```
 
 `code` is the code for the *current* time step, computed via the auto-configured `CodeGenerator` —
 the same value an enrolled authenticator app would be showing right now. `validForSeconds` counts
-down to `0` as the 60-second window (`totp.time.period`) elapses, then a new code takes over.
+down to `0` as the 30-second window (`totp.time.period`) elapses, then a new code takes over.
 `404` (`ApiError`) if `/register` was never called for `appId`.
 
 ### `POST /api/v1/totp/validate-qr` — check a code from an app enrolled via `/generate-qr`
@@ -632,7 +634,7 @@ for exactly which bean each one feeds.
 |----------------------------|---------------------------------------------|-------------------|-------------------|
 | `totp.secret.length`       | Characters in a newly generated secret       | `32`              | `32`              |
 | `totp.code.length`         | Digits in a generated/validated code         | `6`               | `6`               |
-| `totp.time.period`         | Seconds per time step                        | `30`              | **`60`** — each code stays valid for a full minute |
+| `totp.time.period`         | Seconds per time step                        | `30`              | `30` — Google Authenticator ignores any other value |
 | `totp.time.discrepancy`    | +/- time steps tolerated during validation   | `1`               | `1`               |
 | `server.port`              | —                                             | —                | `8096`            |
 | `spring.datasource.url`    | via `POSTGRES_HOST`/`POSTGRES_PORT`/`POSTGRES_DB` | —           | `jdbc:postgresql://localhost:5433/totp` |

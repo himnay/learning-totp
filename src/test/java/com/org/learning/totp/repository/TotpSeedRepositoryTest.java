@@ -61,4 +61,18 @@ class TotpSeedRepositoryTest {
     void findReturnsNullWhenMissing() {
         assertThat(repository.findByAppId("nobody")).isNull();
     }
+
+    @Test
+    @DisplayName("markStepUsed() accepts only newer time steps, and re-registering resets it")
+    void markStepUsedRejectsReplays() {
+        repository.upsert("app-replay", "learning-totp", "JBSWY3DPEHPK3PXP");
+
+        assertThat(repository.markStepUsed("app-replay", 100)).isTrue();
+        assertThat(repository.markStepUsed("app-replay", 100)).as("same step = replay").isFalse();
+        assertThat(repository.markStepUsed("app-replay", 99)).as("older step").isFalse();
+        assertThat(repository.markStepUsed("app-replay", 101)).isTrue();
+
+        repository.upsert("app-replay", "learning-totp", "KRSXG5CTMVRXEZLU");   // secret rotated
+        assertThat(repository.markStepUsed("app-replay", 50)).isTrue();
+    }
 }

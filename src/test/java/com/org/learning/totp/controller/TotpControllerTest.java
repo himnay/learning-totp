@@ -118,27 +118,47 @@ class TotpControllerTest {
 
     @Test
     void validateQrAndValidateAgreeOnTheSameCode() throws Exception {
-        String registerResponse = mockMvc.perform(post("/api/v1/totp/register")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"appId\":\"frank-tablet-authenticator\"}"))
-                .andExpect(status().isOk())
-                .andReturn()
-                .getResponse()
-                .getContentAsString();
-        String secret = JsonPath.read(registerResponse, "$.secret");
-        String currentCode = codeGenerator.generate(secret, timeProvider.getTime() / timePeriod);
+        // Both endpoints run the same check; each gets its own app, because a code is single-use.
+        for (String endpoint : new String[]{"/api/v1/totp/validate-qr", "/api/v1/totp/validate-code"}) {
+            String appId = "frank-tablet" + endpoint.replace('/', '-');
+            String secret = JsonPath.read(mockMvc.perform(post("/api/v1/totp/register")
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content("{\"appId\":\"" + appId + "\"}"))
+                            .andExpect(status().isOk())
+                            .andReturn()
+                            .getResponse()
+                            .getContentAsString(),
+                    "$.secret");
+            String currentCode = codeGenerator.generate(secret, timeProvider.getTime() / timePeriod);
 
-        mockMvc.perform(post("/api/v1/totp/validate-qr")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"appId\":\"frank-tablet-authenticator\",\"code\":\"" + currentCode + "\"}"))
+            mockMvc.perform(post(endpoint)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"appId\":\"" + appId + "\",\"code\":\"" + currentCode + "\"}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.valid").value(true));
+        }
+    }
+
+    @Test
+    void aCodeCannotBeReplayed() throws Exception {
+        String secret = JsonPath.read(mockMvc.perform(post("/api/v1/totp/register")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"appId\":\"mallory-replay-authenticator\"}"))
+                        .andExpect(status().isOk())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString(),
+                "$.secret");
+        String code = codeGenerator.generate(secret, timeProvider.getTime() / timePeriod);
+        String body = "{\"appId\":\"mallory-replay-authenticator\",\"code\":\"" + code + "\"}";
+
+        mockMvc.perform(post("/api/v1/totp/validate-code").contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.valid").value(true));
-
-        mockMvc.perform(post("/api/v1/totp/validate-code")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"appId\":\"frank-tablet-authenticator\",\"code\":\"" + currentCode + "\"}"))
+        // RFC 6238 §5.2 — the same OTP is rejected after it has been accepted once.
+        mockMvc.perform(post("/api/v1/totp/validate-qr").contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.valid").value(true));
+                .andExpect(jsonPath("$.valid").value(false));
     }
 
     @Test

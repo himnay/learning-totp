@@ -10,7 +10,7 @@ auto-configures for [`dev.samstevens.totp`](https://github.com/samdjstevens/java
 secret and recovery codes persisted in Postgres via Flyway-managed migrations.
 
 This is deliberately narrower in scope than its sibling
-[`learning-utility`](../learning-utility), which wires the plain `dev.samstevens.totp:totp`
+[`learning-utility`](https://github.com/himnay/learning-utility), which wires the plain `dev.samstevens.totp:totp`
 library **by hand** (`new DefaultSecretGenerator()`, `new DefaultCodeVerifier(...)`, etc.) and
 additionally encrypts the secret at rest. This project injects every TOTP collaborator
 (`SecretGenerator`, `QrDataFactory`, `QrGenerator`, `CodeGenerator`, `CodeVerifier`,
@@ -48,7 +48,7 @@ modern Spring Boot version — see
 | Concern      | Technology                                                                          |
 |--------------|--------------------------------------------------------------------------------------|
 | Language     | Java 25                                                                               |
-| Framework    | Spring Boot 4.1.0, Spring MVC                                                        |
+| Framework    | Spring Boot 4.1.1, Spring MVC                                                        |
 | TOTP         | `dev.samstevens.totp:totp-spring-boot-starter` 1.7.1 (auto-configures the core `totp` library) |
 | QR rendering | ZXing (pulled in transitively by `totp`, used internally by its `ZxingPngQrGenerator`) |
 | Persistence  | Spring JDBC (`JdbcTemplate`) + PostgreSQL + Flyway                                    |
@@ -232,6 +232,12 @@ accepted for roughly the surrounding ±30 seconds on top of its own 30-second wi
 minor clock skew rejects legitimate users; too wide and you extend an attacker's replay window if a
 code is intercepted.
 
+**Single use (RFC 6238 §5.2):** after `isValidCode` says yes, `TotpService` works out which time step
+matched and records it in `totp_seed.last_used_step` with one conditional `UPDATE … WHERE
+last_used_step < :step` (`TotpSeedRepository.markStepUsed`, Flyway `V4`). The same code — or any
+older one — is then rejected, so an intercepted code can't be replayed inside its window, and two
+concurrent submissions of one code can't both succeed. Re-registering (rotating the secret) resets it.
+
 ---
 
 <a id="6-why-registration-is-a-separate-step"></a>
@@ -257,7 +263,8 @@ ask "what's the code right now?"). This project now splits them:
   `AppNotFoundException` (→ 404) if `/register` was never called for that `appId`.
 - **Validation** (`POST /validate-code` and `POST /validate-qr` — identical logic, kept as two routes
   since which enrollment path a client used doesn't change how a code is checked) takes only
-  `appId` and `code` — the secret never travels in the request at all.
+  `appId` and `code` — the secret never travels in the request at all — and accepts each code
+  once: a replayed code returns `valid: false`.
 
 **What this still doesn't do**, to be explicit about scope: the secret column is stored as-is, not
 encrypted at rest (unlike `learning-utility`'s `TotpSecretCipher`, AES-256-GCM), and there's no
@@ -407,7 +414,12 @@ sequenceDiagram
         DB-->>Repo: seed row
         Svc->>Ver: codeVerifier.isValidCode(secret, code)
         Ver-->>Svc: true | false
-        Svc-->>API: valid
+        opt code is valid
+            Svc->>Repo: markStepUsed(appId, matched time step)
+            Repo->>DB: UPDATE ... SET last_used_step = ? WHERE app_id = ? AND last_used_step < ?
+            DB-->>Repo: 1 row = first use, 0 rows = replay
+        end
+        Svc-->>API: valid (false for a replay)
         API-->>User: 200 OK {"valid": true|false}
     end
 ```

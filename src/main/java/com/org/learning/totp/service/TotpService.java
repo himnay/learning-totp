@@ -23,6 +23,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+
 /**
  * Registers and verifies TOTP-enrolled apps using only beans that {@code totp-spring-boot-starter}
  * auto-configures — no {@code new Default...()} wiring, unlike a plain {@code totp} dependency.
@@ -47,6 +50,9 @@ public class TotpService {
 
     @Value("${totp.time.period}")
     private int timePeriod;
+
+    @Value("${totp.time.discrepancy:1}")
+    private int discrepancy;
 
     /** Generates a fresh secret and persists it against {@code appId} (re-registering rotates the secret). */
     public RegisterDeviceResponse register(String appId, String issuer) {
@@ -87,13 +93,38 @@ public class TotpService {
 
     /**
      * Looks up the persisted seed for {@code appId} and checks the code against it for the
-     * current time step (+/- configured discrepancy).
+     * current time step (+/- configured discrepancy). A code is accepted once: its time step is
+     * recorded, and the same or an older code is rejected afterwards (RFC 6238 §5.2) — otherwise
+     * anyone who saw a code could replay it for the rest of its validity window.
      */
     public boolean validate(String appId, String code) {
         TotpSeed seed = requireSeed(appId);
-        boolean valid = codeVerifier.isValidCode(seed.secret(), code);
-        log.info("TOTP | validate | appId={} valid={}", appId, valid);
-        return valid;
+        if (!codeVerifier.isValidCode(seed.secret(), code)) {
+            log.info("TOTP | validate | appId={} valid=false", appId);
+            return false;
+        }
+        long step = matchingTimeStep(seed.secret(), code);
+        boolean fresh = seedRepository.markStepUsed(appId, step);
+        log.info("TOTP | validate | appId={} valid={}{}", appId, fresh, fresh ? "" : " (code already used — replay rejected)");
+        return fresh;
+    }
+
+    /** The time step within the accepted window whose code equals {@code code}. */
+    private long matchingTimeStep(String secret, String code) {
+        long current = Math.floorDiv(timeProvider.getTime(), timePeriod);
+        for (long step = current - discrepancy; step <= current + discrepancy; step++) {
+            try {
+                if (MessageDigest.isEqual(codeGenerator.generate(secret, step).getBytes(StandardCharsets.US_ASCII),
+                        code.getBytes(StandardCharsets.US_ASCII))) {
+                    return step;
+                }
+            } catch (CodeGenerationException e) {
+                throw new OtpGenerationException("Failed to recompute the TOTP code during validation", e);
+            }
+        }
+        // CodeVerifier accepted it a moment ago, so only a time-step boundary in between gets here:
+        // the match was the step that has just left the window.
+        return current - discrepancy - 1;
     }
 
     private TotpSeed requireSeed(String appId) {

@@ -26,11 +26,26 @@ public class TotpSeedRepository {
         jdbc.update(
                 """
                 INSERT INTO totp_seed (app_id, issuer, secret) VALUES (?, ?, ?)
-                ON CONFLICT (app_id) DO UPDATE SET issuer = EXCLUDED.issuer, secret = EXCLUDED.secret, created_at = NOW()
+                ON CONFLICT (app_id) DO UPDATE SET issuer = EXCLUDED.issuer, secret = EXCLUDED.secret, created_at = NOW(),
+                    last_used_step = NULL
                 """,
                 appId,
                 issuer,
                 secret);
+    }
+
+    /**
+     * Records {@code timeStep} as the latest accepted code for {@code appId}, atomically and only if
+     * it is newer than the one recorded before. {@code false} means the code (or an older one) was
+     * already used — a replay — and must be rejected.
+     */
+    public boolean markStepUsed(String appId, long timeStep) {
+        return jdbc.update(
+                        "UPDATE totp_seed SET last_used_step = ? WHERE app_id = ? AND (last_used_step IS NULL OR last_used_step < ?)",
+                        timeStep,
+                        appId,
+                        timeStep)
+                == 1;
     }
 
     /** Returns {@code null} when no seed exists for this app (not an exception). */

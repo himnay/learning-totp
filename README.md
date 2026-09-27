@@ -13,8 +13,8 @@ This is deliberately narrower in scope than its sibling
 [`learning-utility`](https://github.com/himnay/learning-utility), which wires the plain `dev.samstevens.totp:totp`
 library **by hand** (`new DefaultSecretGenerator()`, `new DefaultCodeVerifier(...)`, etc.) and
 additionally encrypts the secret at rest. This project injects every TOTP collaborator
-(`SecretGenerator`, `QrDataFactory`, `QrGenerator`, `CodeGenerator`, `CodeVerifier`,
-`RecoveryCodeGenerator`) as a Spring bean the starter builds for you from `application.yaml`
+([`SecretGenerator`][SecretGenerator], [`QrDataFactory`][QrDataFactory], [`QrGenerator`][QrGenerator], [`CodeGenerator`][CodeGenerator], [`CodeVerifier`][CodeVerifier],
+[`RecoveryCodeGenerator`][RecoveryCodeGenerator]) as a Spring bean the starter builds for you from `application.yaml`
 properties — no manual `new Default...()` wiring. The trade-off, and a genuine gotcha this README
 documents in detail, is that the starter needed one line of help to even auto-configure on a
 modern Spring Boot version — see
@@ -50,8 +50,8 @@ modern Spring Boot version — see
 | Language     | Java 25                                                                               |
 | Framework    | Spring Boot 4.1.1, Spring MVC                                                        |
 | TOTP         | `dev.samstevens.totp:totp-spring-boot-starter` 1.7.1 (auto-configures the core `totp` library) |
-| QR rendering | ZXing (pulled in transitively by `totp`, used internally by its `ZxingPngQrGenerator`) |
-| Persistence  | Spring JDBC (`JdbcTemplate`) + PostgreSQL + Flyway                                    |
+| QR rendering | ZXing (pulled in transitively by `totp`, used internally by its [`ZxingPngQrGenerator`][ZxingPngQrGenerator]) |
+| Persistence  | Spring JDBC ([`JdbcTemplate`][JdbcTemplate]) + PostgreSQL + Flyway                                    |
 | API docs     | springdoc-openapi (Swagger UI)                                                       |
 | Testing      | JUnit 5, Testcontainers (real Postgres, no mocks)                                    |
 | Build        | Maven — parent `com.org.llm:super-pom`; dependency versions from `com.org.learning:learning-bom` (no version is hardcoded in this module's `pom.xml`) |
@@ -105,11 +105,11 @@ graph TB
 `TotpService`/`RecoveryCodeService` never call `new DefaultSecretGenerator()` or any other
 `Default*` class — every TOTP collaborator arrives via constructor injection, sourced entirely
 from the starter's auto-configuration. Persistence (`TotpSeedRepository`/`RecoveryCodeRepository`)
-is plain hand-written `JdbcTemplate`, unrelated to the starter.
+is plain hand-written [`JdbcTemplate`][JdbcTemplate], unrelated to the starter.
 
 Enrollment and code retrieval are split into distinct endpoints so each collaborator bean is
-exercised on its own: `register` only touches `SecretGenerator`, `generate-qr` only touches
-`QrDataFactory`/`QrGenerator`, and `generate` only touches `CodeGenerator` — all three read the
+exercised on its own: `register` only touches [`SecretGenerator`][SecretGenerator], `generate-qr` only touches
+[`QrDataFactory`][QrDataFactory]/[`QrGenerator`][QrGenerator], and `generate` only touches [`CodeGenerator`][CodeGenerator] — all three read the
 same persisted secret rather than each minting their own.
 
 ---
@@ -118,23 +118,23 @@ same persisted secret rather than each minting their own.
 ## 3. 🚀 How the starter auto-configures TOTP
 
 [`TotpAutoConfiguration`](https://github.com/samdjstevens/java-totp/blob/master/totp-spring-boot-starter/src/main/java/dev/samstevens/totp/spring/autoconfigure/TotpAutoConfiguration.java)
-is an ordinary `@Configuration` class, gated by `@ConditionalOnClass(TotpInfo.class)` (i.e. it
+is an ordinary [`@Configuration`][Configuration] class, gated by [`@ConditionalOnClass(TotpInfo.class)`][ConditionalOnClass] (i.e. it
 only activates when the core `totp` jar — a transitive dependency of the starter — is on the
-classpath) and bound to `@ConfigurationProperties(prefix = "totp")`
+classpath) and bound to [`@ConfigurationProperties(prefix = "totp")`][ConfigurationProperties]
 ([`TotpProperties`](https://github.com/samdjstevens/java-totp/blob/master/totp-spring-boot-starter/src/main/java/dev/samstevens/totp/spring/autoconfigure/TotpProperties.java)).
-It declares seven `@Bean` methods, every one `@ConditionalOnMissingBean` so any bean you define
+It declares seven [`@Bean`][Bean] methods, every one [`@ConditionalOnMissingBean`][ConditionalOnMissingBean] so any bean you define
 yourself silently overrides it:
 
-| Bean               | Default implementation                          | Reads from `TotpProperties`                  |
+| Bean               | Default implementation                          | Reads from [`TotpProperties`][TotpProperties]                  |
 |--------------------|--------------------------------------------------|------------------------------------------------|
-| `SecretGenerator`  | `new DefaultSecretGenerator(secretLength)`        | `totp.secret.length` (default `32`)             |
-| `HashingAlgorithm`  | `HashingAlgorithm.SHA1`                          | — (override by defining your own bean)          |
-| `QrDataFactory`     | `new QrDataFactory(hashingAlgorithm, codeLength, timePeriod)` | `totp.code.length`, `totp.time.period` |
-| `QrGenerator`       | `new ZxingPngQrGenerator()`                      | —                                                |
-| `CodeGenerator`     | `new DefaultCodeGenerator(algorithm, codeLength)` | `totp.code.length` (default `6`)                |
-| `CodeVerifier`      | `new DefaultCodeVerifier(codeGenerator, timeProvider)`, `setTimePeriod`/`setAllowedTimePeriodDiscrepancy` applied | `totp.time.period` (default `30`, also `30` here — see the note in §3), `totp.time.discrepancy` (default `1`) |
-| `TimeProvider`      | `new SystemTimeProvider()`                       | —                                                |
-| `RecoveryCodeGenerator` | `new RecoveryCodeGenerator()`                | — (used by [§7](#7-recovery-codes))              |
+| [`SecretGenerator`][SecretGenerator]  | `new DefaultSecretGenerator(secretLength)`        | `totp.secret.length` (default `32`)             |
+| [`HashingAlgorithm`][HashingAlgorithm]  | `HashingAlgorithm.SHA1`                          | — (override by defining your own bean)          |
+| [`QrDataFactory`][QrDataFactory]     | `new QrDataFactory(hashingAlgorithm, codeLength, timePeriod)` | `totp.code.length`, `totp.time.period` |
+| [`QrGenerator`][QrGenerator]       | `new ZxingPngQrGenerator()`                      | —                                                |
+| [`CodeGenerator`][CodeGenerator]     | `new DefaultCodeGenerator(algorithm, codeLength)` | `totp.code.length` (default `6`)                |
+| [`CodeVerifier`][CodeVerifier]      | `new DefaultCodeVerifier(codeGenerator, timeProvider)`, `setTimePeriod`/`setAllowedTimePeriodDiscrepancy` applied | `totp.time.period` (default `30`, also `30` here — see the note in §3), `totp.time.discrepancy` (default `1`) |
+| [`TimeProvider`][TimeProvider]      | `new SystemTimeProvider()`                       | —                                                |
+| [`RecoveryCodeGenerator`][RecoveryCodeGenerator] | `new RecoveryCodeGenerator()`                | — (used by [§7](#7-recovery-codes))              |
 
 `TotpService` injects `SecretGenerator`, `QrDataFactory`, `QrGenerator`, `CodeGenerator` and
 `CodeVerifier`; `RecoveryCodeService` injects `RecoveryCodeGenerator`. Every value in
@@ -151,7 +151,7 @@ project's `TotpService.generateOtp()` computes by hand (`time / timePeriod`) —
 ## 4. ⚠️ The gotcha: the starter doesn't auto-configure out of the box
 
 `totp-spring-boot-starter` 1.7.1 — the latest version on Maven Central, last published
-2020-11-05 — registers `TotpAutoConfiguration` **exclusively** via the legacy
+2020-11-05 — registers [`TotpAutoConfiguration`][TotpAutoConfiguration] **exclusively** via the legacy
 `META-INF/spring.factories` mechanism:
 
 ```
@@ -163,9 +163,9 @@ Spring Boot 3.0 dropped support for auto-configuration entries in `spring.factor
 only `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports` is
 scanned. The starter jar has no such file. The practical effect on Spring Boot 4.1 (this
 project's version, same story on any Boot 3+ version): **add the starter dependency alone, and
-none of its beans exist.** `SecretGenerator`, `CodeVerifier` and friends are simply absent from
+none of its beans exist.** [`SecretGenerator`][SecretGenerator], [`CodeVerifier`][CodeVerifier] and friends are simply absent from
 the context — `TotpService`'s constructor injection fails at startup with
-`NoSuchBeanDefinitionException`, which is exactly what happened building this repo before the fix
+[`NoSuchBeanDefinitionException`][NoSuchBeanDefinitionException], which is exactly what happened building this repo before the fix
 below was added (verified directly — `mvn verify` failed with that exact exception until this
 class existed).
 
@@ -178,16 +178,16 @@ is three lines:
 public class TotpStarterConfig {}
 ```
 
-`TotpAutoConfiguration` is a perfectly normal `@Configuration` class once you're inside the jar —
+`TotpAutoConfiguration` is a perfectly normal [`@Configuration`][Configuration] class once you're inside the jar —
 the only thing missing is the metadata file that would make Spring Boot import it *automatically*.
-`@Import` registers it explicitly, which also re-triggers its
-`@EnableConfigurationProperties(TotpProperties.class)`, so `totp.*` properties bind exactly as
+[`@Import`][Import] registers it explicitly, which also re-triggers its
+[`@EnableConfigurationProperties(TotpProperties.class)`][EnableConfigurationProperties], so `totp.*` properties bind exactly as
 they would if auto-configuration had picked the class up on its own. No forking or shading of the
 starter jar required — this is a three-line workaround, not a maintenance burden.
 
 **This is not a criticism of this project's approach — it's the actual state of the upstream
 library.** If you use `totp-spring-boot-starter` with Spring Boot 3 or newer, you need this same
-`@Import`, or an equivalent `spring.factories`-to-`AutoConfiguration.imports` shim in your own
+`@Import`, or an equivalent `spring.factories`-to-[`AutoConfiguration.imports`][AutoConfiguration] shim in your own
 `META-INF`. It's also *why* `learning-utility` doesn't use the starter at all and wires the plain
 `totp` core library by hand instead — both are valid ways to use this library on a modern Spring
 Boot version; this repo exists specifically to show the starter path (and its one caveat) working.
@@ -278,7 +278,7 @@ re-implementing `learning-utility`'s security hardening a second time.
 <a id="7-recovery-codes"></a>
 ## 7. 🔑 Recovery codes
 
-The starter also auto-configures a `RecoveryCodeGenerator` bean
+The starter also auto-configures a [`RecoveryCodeGenerator`][RecoveryCodeGenerator] bean
 ([§3](#3-how-the-starter-auto-configures-totp)) — a fallback path into an account when the user's
 device (and its TOTP app) is unavailable. `RecoveryCodeService` wires it up:
 
@@ -473,7 +473,7 @@ An `otpauth://` QR generated by this app (scan it with any authenticator to see 
 ## 9. 📚 API reference
 
 Swagger UI: `http://localhost:8096/swagger-ui.html` — an interactive form for all six endpoints
-below, generated from the springdoc `@Operation`/`@Schema` annotations on
+below, generated from the springdoc [`@Operation`][Operation]/[`@Schema`][Schema] annotations on
 [`TotpController`](src/main/java/com/org/learning/totp/controller/TotpController.java) and the
 DTOs.
 
@@ -529,7 +529,7 @@ curl -s -X POST http://localhost:8096/api/v1/totp/generate-code \
 { "appId": "alice-iphone-15-authenticator-v2", "code": "482913", "validForSeconds": 12 }
 ```
 
-`code` is the code for the *current* time step, computed via the auto-configured `CodeGenerator` —
+`code` is the code for the *current* time step, computed via the auto-configured [`CodeGenerator`][CodeGenerator] —
 the same value an enrolled authenticator app would be showing right now. `validForSeconds` counts
 down to `0` as the 30-second window (`totp.time.period`) elapses, then a new code takes over.
 `404` (`ApiError`) if `/register` was never called for `appId`.
@@ -638,8 +638,8 @@ never deletes), but the constraint keeps the two tables consistent if one is add
 <a id="11-configuration-reference"></a>
 ## 11. ⚙️ Configuration reference
 
-All `totp.*` properties are bound by the starter's own `TotpProperties`
-(`@ConfigurationProperties(prefix = "totp")`) — see [§3](#3-how-the-starter-auto-configures-totp)
+All `totp.*` properties are bound by the starter's own [`TotpProperties`][TotpProperties]
+([`@ConfigurationProperties(prefix = "totp")`][ConfigurationProperties]) — see [§3](#3-how-the-starter-auto-configures-totp)
 for exactly which bean each one feeds.
 
 | Property                 | Meaning                                    | Library default  | This project     |
@@ -654,7 +654,7 @@ for exactly which bean each one feeds.
 | `spring.datasource.password` | via `POSTGRES_PASSWORD`                    | —                | `totp`            |
 
 Changing the hashing algorithm or time source isn't a property — the starter expects a bean
-override instead (see `TotpAutoConfiguration`'s `@ConditionalOnMissingBean` methods in
+override instead (see [`TotpAutoConfiguration`][TotpAutoConfiguration]'s [`@ConditionalOnMissingBean`][ConditionalOnMissingBean] methods in
 [§3](#3-how-the-starter-auto-configures-totp)):
 
 ```java
@@ -738,7 +738,7 @@ maps every exception escaping `TotpController` to a shared `ApiError` JSON shape
 
 | Exception                          | HTTP status                        |
 |-------------------------------------|-------------------------------------|
-| `MethodArgumentNotValidException`   | 400 Bad Request                     |
+| [`MethodArgumentNotValidException`][MethodArgumentNotValidException]   | 400 Bad Request                     |
 | `AppNotFoundException`              | 404 Not Found                       |
 | `QrCodeRenderException`             | 500 Internal Server Error (logged)  |
 | `OtpGenerationException`            | 500 Internal Server Error (logged)  |
@@ -779,7 +779,7 @@ layer both work, not just that the code compiles. Requires a running Docker daem
 - `generateQrForARegisteredAppReturnsAScannableQrCode` / `generateQrForAnUnregisteredAppReturns404`
   — `/generate-qr`/`/generate-code` require a prior `/register`.
 - `generateReturnsTheCurrentNumericCodeAndItValidatesSuccessfully` — registers an app,
-  independently recomputes the current code via the auto-configured `CodeGenerator`/`TimeProvider`
+  independently recomputes the current code via the auto-configured [`CodeGenerator`][CodeGenerator]/[`TimeProvider`][TimeProvider]
   beans, asserts `/generate-code` returns that exact code, and that `/validate-code` accepts it.
 - `validateQrAndValidateAgreeOnTheSameCode` — both validate routes accept the same current code.
 - `validateWithAWrongCodeReturnsFalseNotAnError` / `validateForAnUnregisteredAppReturns404` /
@@ -791,3 +791,30 @@ layer both work, not just that the code compiles. Requires a running Docker daem
 [`TotpSeedRepositoryTest`](src/test/java/com/org/learning/totp/repository/TotpSeedRepositoryTest.java)
 tests the JDBC layer in isolation (no web layer): upsert-then-find round trip, secret rotation on
 conflict, and `null` (not an exception) for a missing app.
+
+<!-- Library classes mentioned above, linked to their source at the versions this project builds with. -->
+
+[AutoConfiguration]: https://github.com/spring-projects/spring-boot/blob/v4.1.1/core/spring-boot-autoconfigure/src/main/java/org/springframework/boot/autoconfigure/AutoConfiguration.java
+[Bean]: https://github.com/spring-projects/spring-framework/blob/v7.0.9/spring-context/src/main/java/org/springframework/context/annotation/Bean.java
+[CodeGenerator]: https://github.com/samdjstevens/java-totp/blob/totp-1.7.1/totp/src/main/java/dev/samstevens/totp/code/CodeGenerator.java
+[CodeVerifier]: https://github.com/samdjstevens/java-totp/blob/totp-1.7.1/totp/src/main/java/dev/samstevens/totp/code/CodeVerifier.java
+[ConditionalOnClass]: https://github.com/spring-projects/spring-boot/blob/v4.1.1/core/spring-boot-autoconfigure/src/main/java/org/springframework/boot/autoconfigure/condition/ConditionalOnClass.java
+[ConditionalOnMissingBean]: https://github.com/spring-projects/spring-boot/blob/v4.1.1/core/spring-boot-autoconfigure/src/main/java/org/springframework/boot/autoconfigure/condition/ConditionalOnMissingBean.java
+[Configuration]: https://github.com/spring-projects/spring-framework/blob/v7.0.9/spring-context/src/main/java/org/springframework/context/annotation/Configuration.java
+[ConfigurationProperties]: https://github.com/spring-projects/spring-boot/blob/v4.1.1/core/spring-boot/src/main/java/org/springframework/boot/context/properties/ConfigurationProperties.java
+[EnableConfigurationProperties]: https://github.com/spring-projects/spring-boot/blob/v4.1.1/core/spring-boot/src/main/java/org/springframework/boot/context/properties/EnableConfigurationProperties.java
+[HashingAlgorithm]: https://github.com/samdjstevens/java-totp/blob/totp-1.7.1/totp/src/main/java/dev/samstevens/totp/code/HashingAlgorithm.java
+[Import]: https://github.com/spring-projects/spring-framework/blob/v7.0.9/spring-context/src/main/java/org/springframework/context/annotation/Import.java
+[JdbcTemplate]: https://github.com/spring-projects/spring-framework/blob/v7.0.9/spring-jdbc/src/main/java/org/springframework/jdbc/core/JdbcTemplate.java
+[MethodArgumentNotValidException]: https://github.com/spring-projects/spring-framework/blob/v7.0.9/spring-web/src/main/java/org/springframework/web/bind/MethodArgumentNotValidException.java
+[NoSuchBeanDefinitionException]: https://github.com/spring-projects/spring-framework/blob/v7.0.9/spring-beans/src/main/java/org/springframework/beans/factory/NoSuchBeanDefinitionException.java
+[Operation]: https://github.com/swagger-api/swagger-core/blob/v2.2.55/modules/swagger-annotations/src/main/java/io/swagger/v3/oas/annotations/Operation.java
+[QrDataFactory]: https://github.com/samdjstevens/java-totp/blob/totp-1.7.1/totp/src/main/java/dev/samstevens/totp/qr/QrDataFactory.java
+[QrGenerator]: https://github.com/samdjstevens/java-totp/blob/totp-1.7.1/totp/src/main/java/dev/samstevens/totp/qr/QrGenerator.java
+[RecoveryCodeGenerator]: https://github.com/samdjstevens/java-totp/blob/totp-1.7.1/totp/src/main/java/dev/samstevens/totp/recovery/RecoveryCodeGenerator.java
+[Schema]: https://github.com/swagger-api/swagger-core/blob/v2.2.55/modules/swagger-annotations/src/main/java/io/swagger/v3/oas/annotations/media/Schema.java
+[SecretGenerator]: https://github.com/samdjstevens/java-totp/blob/totp-1.7.1/totp/src/main/java/dev/samstevens/totp/secret/SecretGenerator.java
+[TimeProvider]: https://github.com/samdjstevens/java-totp/blob/totp-1.7.1/totp/src/main/java/dev/samstevens/totp/time/TimeProvider.java
+[TotpAutoConfiguration]: https://github.com/samdjstevens/java-totp/blob/totp-1.7.1/totp-spring-boot-starter/src/main/java/dev/samstevens/totp/spring/autoconfigure/TotpAutoConfiguration.java
+[TotpProperties]: https://github.com/samdjstevens/java-totp/blob/totp-1.7.1/totp-spring-boot-starter/src/main/java/dev/samstevens/totp/spring/autoconfigure/TotpProperties.java
+[ZxingPngQrGenerator]: https://github.com/samdjstevens/java-totp/blob/totp-1.7.1/totp/src/main/java/dev/samstevens/totp/qr/ZxingPngQrGenerator.java

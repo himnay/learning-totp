@@ -11,5 +11,5 @@ public record RegisterDeviceResponse(
         String secret,
     @Schema(
             description = "otpauth:// provisioning URI — for manual entry, or feed it to /generate-qr for a scannable code",
-            example = "otpauth://totp/learning-totp:alice-iphone-15-authenticator-v2?secret=JBSWY3DPEHPK3PXP&issuer=learning-totp&algorithm=SHA1&digits=6&period=60")
+            example = "otpauth://totp/alice-iphone-15-authenticator-v2?secret=JBSWY3DPEHPK3PXP&issuer=learning-totp&algorithm=SHA1&digits=6&period=30")
         String otpAuthUri) {}

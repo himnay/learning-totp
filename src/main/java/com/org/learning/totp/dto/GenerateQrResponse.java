@@ -9,7 +9,7 @@ public record GenerateQrResponse(
     @Schema(example = "learning-totp") String issuer,
     @Schema(
             description = "otpauth:// provisioning URI, as encoded into the QR code",
-            example = "otpauth://totp/learning-totp:alice-iphone-15-authenticator-v2?secret=JBSWY3DPEHPK3PXP&issuer=learning-totp&algorithm=SHA1&digits=6&period=60")
+            example = "otpauth://totp/alice-iphone-15-authenticator-v2?secret=JBSWY3DPEHPK3PXP&issuer=learning-totp&algorithm=SHA1&digits=6&period=30")
         String otpAuthUri,
     @Schema(description = "The same URI rendered as a scannable QR code, embedded as a base64 PNG data URI")
         String qrCodeDataUri) {}

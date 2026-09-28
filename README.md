@@ -47,7 +47,7 @@ modern Spring Boot version — see
 
 | Concern      | Technology                                                                          |
 |--------------|--------------------------------------------------------------------------------------|
-| Language     | Java 25                                                                               |
+| Language     | Java 27                                                                               |
 | Framework    | Spring Boot 4.1.1, Spring MVC                                                        |
 | TOTP         | `dev.samstevens.totp:totp-spring-boot-starter` 1.7.1 (auto-configures the core `totp` library) |
 | QR rendering | ZXing (pulled in transitively by `totp`, used internally by its [`ZxingPngQrGenerator`][ZxingPngQrGenerator]) |
@@ -122,7 +122,7 @@ is an ordinary [`@Configuration`][Configuration] class, gated by [`@ConditionalO
 only activates when the core `totp` jar — a transitive dependency of the starter — is on the
 classpath) and bound to [`@ConfigurationProperties(prefix = "totp")`][ConfigurationProperties]
 ([`TotpProperties`](https://github.com/samdjstevens/java-totp/blob/master/totp-spring-boot-starter/src/main/java/dev/samstevens/totp/spring/autoconfigure/TotpProperties.java)).
-It declares seven [`@Bean`][Bean] methods, every one [`@ConditionalOnMissingBean`][ConditionalOnMissingBean] so any bean you define
+It declares eight [`@Bean`][Bean] methods, every one [`@ConditionalOnMissingBean`][ConditionalOnMissingBean] so any bean you define
 yourself silently overrides it:
 
 | Bean               | Default implementation                          | Reads from [`TotpProperties`][TotpProperties]                  |
@@ -132,12 +132,12 @@ yourself silently overrides it:
 | [`QrDataFactory`][QrDataFactory]     | `new QrDataFactory(hashingAlgorithm, codeLength, timePeriod)` | `totp.code.length`, `totp.time.period` |
 | [`QrGenerator`][QrGenerator]       | `new ZxingPngQrGenerator()`                      | —                                                |
 | [`CodeGenerator`][CodeGenerator]     | `new DefaultCodeGenerator(algorithm, codeLength)` | `totp.code.length` (default `6`)                |
-| [`CodeVerifier`][CodeVerifier]      | `new DefaultCodeVerifier(codeGenerator, timeProvider)`, `setTimePeriod`/`setAllowedTimePeriodDiscrepancy` applied | `totp.time.period` (default `30`, also `30` here — see the note in §3), `totp.time.discrepancy` (default `1`) |
+| [`CodeVerifier`][CodeVerifier]      | `new DefaultCodeVerifier(codeGenerator, timeProvider)`, `setTimePeriod`/`setAllowedTimePeriodDiscrepancy` applied | `totp.time.period` (default `30`, also `30` here — see the note in §5), `totp.time.discrepancy` (default `1`) |
 | [`TimeProvider`][TimeProvider]      | `new SystemTimeProvider()`                       | —                                                |
 | [`RecoveryCodeGenerator`][RecoveryCodeGenerator] | `new RecoveryCodeGenerator()`                | — (used by [§7](#7-recovery-codes))              |
 
-`TotpService` injects `SecretGenerator`, `QrDataFactory`, `QrGenerator`, `CodeGenerator` and
-`CodeVerifier`; `RecoveryCodeService` injects `RecoveryCodeGenerator`. Every value in
+`TotpService` injects `SecretGenerator`, `QrDataFactory`, `QrGenerator`, `CodeGenerator`,
+`CodeVerifier` and `TimeProvider`; `RecoveryCodeService` injects `RecoveryCodeGenerator`. Every value in
 [§11](#11-configuration-reference) is a `totp.*` property that `TotpProperties` binds and hands to
 these bean factory methods — change `totp.code.length: 8` in `application.yaml` and `QrDataFactory`,
 `CodeGenerator` and `CodeVerifier` all pick up 8-digit codes automatically, with no code change.
@@ -269,7 +269,9 @@ ask "what's the code right now?"). This project now splits them:
 **What this still doesn't do**, to be explicit about scope: the secret column is stored as-is, not
 encrypted at rest (unlike `learning-utility`'s `TotpSecretCipher`, AES-256-GCM), and there's no
 authentication gate on any endpoint — anyone who knows an `appId` can validate against it or
-trigger a rotation. Both are real gaps for a production deployment; they're out of scope here
+trigger a rotation. Nor are the validate endpoints rate-limited, although RFC 4226 §7.3 asks for
+throttling: a 6-digit code falls to brute force without it (`learning-utility`'s
+`TotpVerifyRateLimiter` shows one way). Both are real gaps for a production deployment; they're out of scope here
 because the focus of this repo is the starter's auto-configuration and the persistence model, not
 re-implementing `learning-utility`'s security hardening a second time.
 
@@ -383,7 +385,7 @@ sequenceDiagram
     Svc->>Repo: findByAppId(appId)
     Repo->>DB: SELECT ... WHERE app_id = ?
     DB-->>Repo: seed row
-    Svc->>CG: codeGenerator.generate(secret, time / 60)
+    Svc->>CG: codeGenerator.generate(secret, time / 30)
     CG-->>Svc: 6-digit code
     Svc-->>API: {appId, code, validForSeconds}
     API-->>User: 200 OK (JSON)
@@ -490,7 +492,7 @@ curl -s -X POST http://localhost:8096/api/v1/totp/register \
   "appId": "alice-iphone-15-authenticator-v2",
   "issuer": "learning-totp",
   "secret": "JBSWY3DPEHPK3PXP",
-  "otpAuthUri": "otpauth://totp/learning-totp:alice-iphone-15-authenticator-v2?secret=JBSWY3DPEHPK3PXP&issuer=learning-totp&algorithm=SHA1&digits=6&period=30"
+  "otpAuthUri": "otpauth://totp/alice-iphone-15-authenticator-v2?secret=JBSWY3DPEHPK3PXP&issuer=learning-totp&algorithm=SHA1&digits=6&period=30"
 }
 ```
 
@@ -509,7 +511,7 @@ curl -s -X POST http://localhost:8096/api/v1/totp/generate-qr \
 {
   "appId": "alice-iphone-15-authenticator-v2",
   "issuer": "learning-totp",
-  "otpAuthUri": "otpauth://totp/learning-totp:alice-iphone-15-authenticator-v2?secret=JBSWY3DPEHPK3PXP&issuer=learning-totp&algorithm=SHA1&digits=6&period=30",
+  "otpAuthUri": "otpauth://totp/alice-iphone-15-authenticator-v2?secret=JBSWY3DPEHPK3PXP&issuer=learning-totp&algorithm=SHA1&digits=6&period=30",
   "qrCodeDataUri": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA..."
 }
 ```
@@ -531,7 +533,7 @@ curl -s -X POST http://localhost:8096/api/v1/totp/generate-code \
 
 `code` is the code for the *current* time step, computed via the auto-configured [`CodeGenerator`][CodeGenerator] —
 the same value an enrolled authenticator app would be showing right now. `validForSeconds` counts
-down to `0` as the 30-second window (`totp.time.period`) elapses, then a new code takes over.
+down from 30 to 1 as the 30-second window (`totp.time.period`) elapses, then a new code takes over.
 `404` (`ApiError`) if `/register` was never called for `appId`.
 
 ### `POST /api/v1/totp/validate-qr` — check a code from an app enrolled via `/generate-qr`
@@ -608,15 +610,17 @@ Two tables, migrated by Flyway on startup (`src/main/resources/db/migration/`), 
 keyed by `device_id` (`V1`/`V2`) and renamed to `app_id` by `V3` — see [§6](#6-why-registration-is-a-separate-step)
 for why:
 
-**`totp_seed`** (`V1__create_totp_seed.sql`, renamed by `V3`) — one row per registered app install:
+**`totp_seed`** (`V1__create_totp_seed.sql`, renamed by `V3`, `last_used_step` added by `V4`) — one row
+per registered app install:
 
-| Column       | Type           | Notes                                     |
-|--------------|----------------|--------------------------------------------|
-| `id`         | `BIGSERIAL`    | primary key                                |
-| `app_id`     | `VARCHAR(100)` | `NOT NULL UNIQUE`                          |
-| `issuer`     | `VARCHAR(100)` | `NOT NULL`                                 |
-| `secret`     | `VARCHAR(64)`  | `NOT NULL` — Base32, stored as-is          |
-| `created_at` | `TIMESTAMPTZ`  | `NOT NULL DEFAULT NOW()`, refreshed on rotation |
+| Column           | Type           | Notes                                                                         |
+|------------------|----------------|-------------------------------------------------------------------------------|
+| `id`             | `BIGSERIAL`    | primary key                                                                   |
+| `app_id`         | `VARCHAR(100)` | `NOT NULL UNIQUE`                                                             |
+| `issuer`         | `VARCHAR(100)` | `NOT NULL`                                                                    |
+| `secret`         | `VARCHAR(64)`  | `NOT NULL` — Base32, stored as-is                                             |
+| `created_at`     | `TIMESTAMPTZ`  | `NOT NULL DEFAULT NOW()`, refreshed on rotation                               |
+| `last_used_step` | `BIGINT`       | time step of the last accepted code, the replay guard (§5); reset on rotation |
 
 **`totp_recovery_code`** (`V2__create_totp_recovery_code.sql`, renamed by `V3`) — many rows per app:
 
@@ -688,7 +692,7 @@ src/main/java/com/org/learning/totp/
     TotpSeed.java                      persisted row: appId, issuer, secret, createdAt
 
   repository/
-    TotpSeedRepository.java            upsert() / findByAppId()
+    TotpSeedRepository.java            upsert() / findByAppId() / markStepUsed()
     RecoveryCodeRepository.java        replaceAll() / redeem()
 
   service/
@@ -718,13 +722,14 @@ src/main/resources/
     V1__create_totp_seed.sql
     V2__create_totp_recovery_code.sql
     V3__rename_device_id_to_app_id.sql
+    V4__add_totp_last_used_step.sql
 
 src/test/java/com/org/learning/totp/
   LearningTotpApplicationTests.java    Testcontainers-backed context load
   controller/TotpControllerTest.java   full-context test — no mocks, real starter beans + real Postgres
   repository/TotpSeedRepositoryTest.java
 
-docker-compose.yml                     Postgres 19beta1 (same version as the other learning-* repos)
+docker-compose.yml                     Postgres 19beta3 on localhost:5433
 ```
 
 ---
@@ -736,13 +741,14 @@ docker-compose.yml                     Postgres 19beta1 (same version as the oth
 maps every exception escaping `TotpController` to a shared `ApiError` JSON shape (`timestamp`,
 `status`, `error`, `message`):
 
-| Exception                          | HTTP status                        |
-|-------------------------------------|-------------------------------------|
-| [`MethodArgumentNotValidException`][MethodArgumentNotValidException]   | 400 Bad Request                     |
-| `AppNotFoundException`              | 404 Not Found                       |
-| `QrCodeRenderException`             | 500 Internal Server Error (logged)  |
-| `OtpGenerationException`            | 500 Internal Server Error (logged)  |
-| anything else                       | 500 Internal Server Error (logged)  |
+| Exception                                                                    | HTTP status                        |
+|------------------------------------------------------------------------------|------------------------------------|
+| [`MethodArgumentNotValidException`][MethodArgumentNotValidException]         | 400 Bad Request                    |
+| `AppNotFoundException`                                                       | 404 Not Found                      |
+| `QrCodeRenderException`                                                      | 500 Internal Server Error (logged) |
+| `OtpGenerationException`                                                     | 500 Internal Server Error (logged) |
+| Spring MVC's own exceptions: malformed JSON, wrong method, unknown path, ... | their own 4xx: 400, 405, 404, ...  |
+| anything else                                                                | 500 Internal Server Error (logged) |
 
 ---
 
@@ -750,12 +756,15 @@ maps every exception escaping `TotpController` to a shared `ApiError` JSON shape
 ## 14. 🚀 Running
 
 ```bash
-# 1. Start Postgres (same postgres:19beta1 image the other learning-* repos use)
+# 1. Start Postgres (postgres:19beta3 on localhost:5433)
 docker compose up -d
 
 # 2. Run the application — Flyway migrates totp_seed / totp_recovery_code automatically
-./mvnw spring-boot:run
+mvn spring-boot:run
 ```
+
+PostgreSQL 19 betas don't share an on-disk format: a data volume created by a different beta
+won't start on this one until you recreate it (`docker compose down -v`) or dump and restore it.
 
 Swagger UI: `http://localhost:8096/swagger-ui.html`
 
@@ -765,10 +774,10 @@ Swagger UI: `http://localhost:8096/swagger-ui.html`
 ## 15. 🧪 Testing
 
 ```bash
-./mvnw test
+mvn test
 ```
 
-Every test in this project runs against a real Postgres via Testcontainers (`postgres:16-alpine`)
+Every test in this project runs against a real Postgres via Testcontainers (`postgres:18-alpine`)
 — nothing is mocked, so these are the tests that actually prove
 [§4](#4-the-gotcha-the-starter-doesnt-auto-configure-out-of-the-box)'s fix and the persistence
 layer both work, not just that the code compiles. Requires a running Docker daemon.
@@ -782,6 +791,9 @@ layer both work, not just that the code compiles. Requires a running Docker daem
   independently recomputes the current code via the auto-configured [`CodeGenerator`][CodeGenerator]/[`TimeProvider`][TimeProvider]
   beans, asserts `/generate-code` returns that exact code, and that `/validate-code` accepts it.
 - `validateQrAndValidateAgreeOnTheSameCode` — both validate routes accept the same current code.
+- `aCodeCannotBeReplayed` — an accepted code is rejected the second time (RFC 6238 §5.2).
+- `malformedJsonIsABadRequestNotAServerError` / `aWrongMethodIsMethodNotAllowedNotAServerError` /
+  `anUnknownPathIsNotFoundNotAServerError` — client mistakes get their 4xx, not a 500.
 - `validateWithAWrongCodeReturnsFalseNotAnError` / `validateForAnUnregisteredAppReturns404` /
   `registerWithABlankAppIdReturns400` — the non-happy paths.
 - `recoveryCodesCanBeGeneratedAndEachRedeemedExactlyOnce` — generates a batch, redeems the first
@@ -790,7 +802,8 @@ layer both work, not just that the code compiles. Requires a running Docker daem
 
 [`TotpSeedRepositoryTest`](src/test/java/com/org/learning/totp/repository/TotpSeedRepositoryTest.java)
 tests the JDBC layer in isolation (no web layer): upsert-then-find round trip, secret rotation on
-conflict, and `null` (not an exception) for a missing app.
+conflict, `null` (not an exception) for a missing app, and `markStepUsed` accepting only newer time
+steps (reset when the secret rotates).
 
 <!-- Library classes mentioned above, linked to their source at the versions this project builds with. -->
 

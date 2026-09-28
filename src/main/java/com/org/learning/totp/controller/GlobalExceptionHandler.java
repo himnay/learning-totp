@@ -6,25 +6,47 @@ import com.org.learning.totp.exception.OtpGenerationException;
 import com.org.learning.totp.exception.QrCodeRenderException;
 import java.time.OffsetDateTime;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
-/** Maps every exception that escapes {@link TotpController} to a consistent {@link ApiError} JSON body. */
+/**
+ * Maps every exception that escapes {@link TotpController} to a consistent {@link ApiError} JSON body.
+ * Extends {@link ResponseEntityExceptionHandler} so Spring MVC's own exceptions (malformed JSON, an
+ * unsupported method or media type, an unknown path) keep their 4xx status instead of falling
+ * through to the catch-all 500.
+ */
 @Slf4j
 @RestControllerAdvice
-public class GlobalExceptionHandler {
+public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ApiError> handleValidation(MethodArgumentNotValidException ex) {
+    @Override
+    protected ResponseEntity<Object> handleMethodArgumentNotValid(
+            MethodArgumentNotValidException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
         String message =
                 ex.getBindingResult().getFieldErrors().stream()
                         .findFirst()
                         .map(f -> f.getField() + ": " + f.getDefaultMessage())
                         .orElse("Validation failed");
-        return ResponseEntity.badRequest().body(error(HttpStatus.BAD_REQUEST, message));
+        return ResponseEntity.badRequest().headers(headers).body(error(HttpStatus.BAD_REQUEST, message));
+    }
+
+    /** Every other Spring MVC exception, with the status and detail Spring assigns to it. */
+    @Override
+    protected ResponseEntity<Object> handleExceptionInternal(
+            Exception ex, Object body, HttpHeaders headers, HttpStatusCode statusCode, WebRequest request) {
+        HttpStatus status = HttpStatus.valueOf(statusCode.value());
+        String message = body instanceof ProblemDetail problem && problem.getDetail() != null
+                ? problem.getDetail()
+                : ex.getMessage();
+        return ResponseEntity.status(status).headers(headers).body(error(status, message));
     }
 
     @ExceptionHandler(AppNotFoundException.class)

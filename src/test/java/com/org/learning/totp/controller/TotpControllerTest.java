@@ -3,6 +3,7 @@ package com.org.learning.totp.controller;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.startsWith;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -34,7 +35,7 @@ class TotpControllerTest {
 
     @Container
     @ServiceConnection
-    static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:16-alpine");
+    static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:18-alpine");
 
     @Autowired
     private MockMvc mockMvc;
@@ -230,6 +231,28 @@ class TotpControllerTest {
         mockMvc.perform(post("/api/v1/totp/recovery-codes/generate")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"appId\":\"never-registered\"}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void malformedJsonIsABadRequestNotAServerError() throws Exception {
+        mockMvc.perform(post("/api/v1/totp/validate-code")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"appId\":"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    void aWrongMethodIsMethodNotAllowedNotAServerError() throws Exception {
+        mockMvc.perform(get("/api/v1/totp/register"))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(jsonPath("$.status").value(405));
+    }
+
+    @Test
+    void anUnknownPathIsNotFoundNotAServerError() throws Exception {
+        mockMvc.perform(post("/api/v1/totp/no-such-endpoint"))
                 .andExpect(status().isNotFound());
     }
 }

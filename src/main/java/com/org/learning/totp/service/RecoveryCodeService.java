@@ -11,7 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 /**
- * Issues and redeems one-time backup codes via the starter's auto-configured {@link
+ * Issues and redeems one-time backup codes via the starter's autoconfigured {@link
  * RecoveryCodeGenerator} bean. A code is a fallback path into an app already enrolled for TOTP
  * (see {@link TotpService}) — generating a batch requires an existing {@code totp_seed} row.
  */

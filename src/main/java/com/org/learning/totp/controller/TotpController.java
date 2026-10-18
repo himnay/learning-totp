@@ -25,8 +25,8 @@ import org.springframework.web.bind.annotation.RestController;
 /** {@code /api/v1/totp} — register apps, generate/validate TOTP codes, and one-time recovery codes. */
 @RestController
 @Tag(name = "TOTP")
-@RequestMapping("/api/v1/totp")
 @RequiredArgsConstructor
+@RequestMapping("/api/v1/totp")
 public class TotpController {
 
     private final TotpService totpService;

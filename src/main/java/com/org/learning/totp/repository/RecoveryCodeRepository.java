@@ -1,6 +1,7 @@
 package com.org.learning.totp.repository;
 
 import java.util.List;
+import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -9,13 +10,10 @@ import org.springframework.stereotype.Repository;
  * (not hashed) — see the README for what a production deployment would add here.
  */
 @Repository
+@RequiredArgsConstructor
 public class RecoveryCodeRepository {
 
     private final JdbcTemplate jdbc;
-
-    public RecoveryCodeRepository(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
-    }
 
     /** Deletes any codes already issued for this app, then inserts a fresh batch. */
     public void replaceAll(String appId, List<String> codes) {

@@ -4,6 +4,7 @@ import com.org.learning.totp.domain.TotpSeed;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
+import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -13,13 +14,10 @@ import org.springframework.stereotype.Repository;
  * see the README for what a production deployment would add here.
  */
 @Repository
+@RequiredArgsConstructor
 public class TotpSeedRepository {
 
     private final JdbcTemplate jdbc;
-
-    public TotpSeedRepository(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
-    }
 
     /** Inserts a new seed, or replaces the existing one for this app (re-registering rotates the secret). */
     public void upsert(String appId, String issuer, String secret) {

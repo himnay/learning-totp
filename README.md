@@ -48,7 +48,7 @@ modern Spring Boot version — see
 | Concern      | Technology                                                                          |
 |--------------|--------------------------------------------------------------------------------------|
 | Language     | Java 27                                                                               |
-| Framework    | Spring Boot 4.1.1, Spring MVC                                                        |
+| Framework    | Spring Boot 4.1.2, Spring MVC                                                        |
 | TOTP         | `dev.samstevens.totp:totp-spring-boot-starter` 1.7.1 (auto-configures the core `totp` library) |
 | QR rendering | ZXing (pulled in transitively by `totp`, used internally by its [`ZxingPngQrGenerator`][ZxingPngQrGenerator]) |
 | Persistence  | Spring JDBC ([`JdbcTemplate`][JdbcTemplate]) + PostgreSQL + Flyway                                    |
